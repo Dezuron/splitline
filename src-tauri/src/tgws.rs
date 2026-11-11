@@ -28,6 +28,10 @@ use tauri::{AppHandle, Emitter, Manager};
 /// project so the application's release list stays clean (and `/releases/latest`
 /// keeps pointing at an app release, which the self-updater depends on).
 const REPO: &str = "Dezuron/tgws-cli";
+/// Project the proxy actually comes from. The user is offered a Flowseal
+/// release, not our rebuild of it, so the UI shows this repository's versions
+/// and release notes.
+const UPSTREAM_REPO: &str = "Flowseal/tg-ws-proxy";
 const ASSET_NAME: &str = "tgws-cli-windows-x64.exe";
 /// Image name of our own binary; only this image is ever killed by name.
 const BINARY_IMAGE: &str = "tgws-cli.exe";
@@ -138,7 +142,9 @@ pub fn status(app: &AppHandle) -> TgwsStatus {
     let state = app.state::<AppState>();
     let mut snapshot = lock(&state.tgws.status).clone();
     snapshot.binary_present = config::tgws_binary_path().exists();
-    snapshot.installed_version = load_cfg(app).installed_version;
+    // The user sees the Flowseal version; the mirror's `-N` build revision is
+    // an internal detail (see `upstream_version`).
+    snapshot.installed_version = upstream_version(&load_cfg(app).installed_version);
     if !snapshot.binary_present
         && !matches!(
             snapshot.state,
@@ -568,6 +574,49 @@ fn kill_named_image(image: &str) {
         .status();
 }
 
+/// Terminates our own proxy image without spawning `taskkill`.
+///
+/// Only used on the exit path, where a new process cannot start any more: the
+/// session is shutting down and Windows fails the spawn with `0xc0000142`.
+fn kill_image_without_spawning() {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snapshot == INVALID_HANDLE_VALUE || snapshot.is_null() {
+            return;
+        }
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let own = std::process::id();
+        let mut next = Process32FirstW(snapshot, &mut entry);
+        while next != 0 {
+            let name: Vec<u16> = entry
+                .szExeFile
+                .iter()
+                .take_while(|unit| **unit != 0)
+                .copied()
+                .collect();
+            if entry.th32ProcessID != own
+                && String::from_utf16_lossy(&name).eq_ignore_ascii_case(BINARY_IMAGE)
+            {
+                let process = OpenProcess(PROCESS_TERMINATE, 0, entry.th32ProcessID);
+                if !process.is_null() {
+                    TerminateProcess(process, 1);
+                    CloseHandle(process);
+                }
+            }
+            next = Process32NextW(snapshot, &mut entry);
+        }
+        CloseHandle(snapshot);
+    }
+}
+
 /// PID of the process listening on `port`, parsed from `netstat -ano`.
 fn port_owner_pid(port: u16) -> Option<u32> {
     let output = sys::command("netstat.exe").args(["-ano"]).output().ok()?;
@@ -774,6 +823,9 @@ fn start_locked(app: &AppHandle) -> Result<(), String> {
         }
     };
     let pid = child.id();
+    // The proxy is a child of the app: it must not survive the app, even when
+    // the app is terminated without cleanup (see the `job` module).
+    crate::job::adopt(&child);
 
     if let Some(stdout) = child.stdout.take() {
         spawn_reader(app.clone(), stdout, cfg.secret.clone());
@@ -935,33 +987,52 @@ fn stop_locked(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Best-effort synchronous stop used from the application exit hook, where no
-/// async runtime or lock ordering guarantees are available any more.
+/// Best-effort synchronous stop used from the application exit hook.
+///
+/// Nothing is spawned here: Windows cannot start a new process while the
+/// session is shutting down, which is exactly how the "taskkill.exe — Ошибка
+/// приложения (0xc0000142)" dialog appeared on logout. The proxy and the
+/// process it extracts both live in the app's job object, so a kernel call is
+/// enough to stop them.
 pub fn stop_on_exit(app: &AppHandle) {
     let taken = {
         let state = app.state::<AppState>();
         let mut guard = lock(&state.tgws.child);
         guard.take()
     };
-    if let Some(mut child) = taken {
-        let pid = child.id();
-        let _ = sys::command("taskkill.exe")
-            .args(["/F", "/T", "/PID", &pid.to_string()])
-            .status();
-        let _ = child.wait();
-        // The spawned parent can leave the extracted child behind; both carry
-        // the same image name. Only runs when this app actually owned a proxy,
-        // so a manually started instance on another port is left alone.
-        kill_image();
+    let Some(mut child) = taken else {
+        return;
+    };
+    crate::job::terminate_all();
+
+    // Give the kernel a moment to reap it; the process is about to exit anyway.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(Some(_)) | Err(_) => return,
+            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+        }
     }
+    // The job could not be created or did not take the child (for example when
+    // the app itself runs inside a restrictive job): stop what we own directly.
+    let _ = child.kill();
+    let _ = child.try_wait();
+    // The bootloader extracts a second `tgws-cli.exe`; without the job it would
+    // keep running and hold the port.
+    kill_image_without_spawning();
 }
 
 // ---------- updates ----------
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TgwsUpdateInfo {
+    /// Version shown to the user (Flowseal), e.g. `1.11.4`.
     pub installed: String,
     pub latest: Option<String>,
+    /// Exact mirror tag of the offered build (`1.11.4-2`). Used for installs
+    /// and dismissal so a rebuild of the same upstream version is still
+    /// distinguishable from what is already on disk.
+    pub latest_tag: Option<String>,
     pub has_update: bool,
     pub asset_name: Option<String>,
     pub asset_url: Option<String>,
@@ -1007,6 +1078,27 @@ struct GhRelease {
     published_at: Option<String>,
     #[serde(default)]
     assets: Vec<GhAsset>,
+}
+
+/// Version of the upstream project behind a mirror tag: `1.11.4-2` → `1.11.4`.
+/// The mirror appends a revision for rebuilds of the same upstream release; it
+/// is an implementation detail, so the UI and the update check only use the
+/// Flowseal version.
+pub fn upstream_version(tag: &str) -> String {
+    tag.trim()
+        .trim_start_matches(['v', 'V'])
+        .split('-')
+        .next()
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Release notes of the upstream project for a mirror tag. `None` when the tag
+/// carries no version at all.
+pub fn upstream_release_url(tag: &str) -> Option<String> {
+    let version = upstream_version(tag);
+    (!version.is_empty())
+        .then(|| format!("https://github.com/{UPSTREAM_REPO}/releases/tag/v{version}"))
 }
 
 /// Compares `1.11.2-1` style versions. Numeric parts compare numerically, a
@@ -1130,23 +1222,42 @@ fn fetch_latest_release() -> Result<Option<GhRelease>, String> {
 }
 
 fn info_from(cached: &CachedRelease, installed: &str, dismissed_tag: &str) -> TgwsUpdateInfo {
-    let installed = installed.trim();
+    // The mirror tag is the identity (`1.11.4-2`), the upstream version is what
+    // the user sees (`1.11.4`). Updates are decided on the exact tags, so a
+    // rebuild of the same Flowseal version is still offered.
+    let installed_raw = installed.trim();
+    let latest_raw = cached.latest.trim();
+    let installed_up = upstream_version(installed_raw);
+    let latest_up = upstream_version(latest_raw);
+    let same_upstream = !installed_up.is_empty() && installed_up == latest_up;
+    let shown = |tag: &str, upstream: &str| -> String {
+        if upstream.is_empty() {
+            return String::new();
+        }
+        match (same_upstream, tag.split_once('-')) {
+            (true, Some((_, revision))) => format!("{upstream} · {revision}"),
+            _ => upstream.to_string(),
+        }
+    };
+
     // Without a downloadable asset there is nothing to offer, even when the
     // version is newer: such a release is incomplete.
     let has_update = cached.asset_url.is_some()
-        && (installed.is_empty()
-            || compare_versions(&cached.latest, installed) == Ordering::Greater);
+        && !latest_raw.is_empty()
+        && (installed_raw.is_empty()
+            || compare_versions(latest_raw, installed_raw) == Ordering::Greater);
     TgwsUpdateInfo {
-        installed: installed.to_string(),
-        latest: Some(cached.latest.clone()),
+        installed: shown(installed_raw, &installed_up),
+        latest: (!latest_raw.is_empty()).then(|| shown(latest_raw, &latest_up)),
+        latest_tag: (!latest_raw.is_empty()).then(|| latest_raw.to_string()),
         has_update,
         asset_name: cached.asset_name.clone(),
         asset_url: cached.asset_url.clone(),
         asset_size: cached.asset_size,
         digest: cached.digest.clone(),
-        release_url: cached.release_url.clone(),
+        release_url: upstream_release_url(latest_raw),
         published_at: cached.published_at.clone(),
-        dismissed: !dismissed_tag.trim().is_empty() && dismissed_tag == cached.latest,
+        dismissed: !dismissed_tag.trim().is_empty() && dismissed_tag.trim() == latest_raw,
     }
 }
 
@@ -1174,8 +1285,9 @@ pub fn check_update(app: &AppHandle, force: bool) -> Result<TgwsUpdateInfo, Stri
     let fetched = fetch_latest_release()?.and_then(release_from);
     let Some(fetched) = fetched else {
         return Ok(TgwsUpdateInfo {
-            installed: cfg.installed_version.clone(),
+            installed: upstream_version(&cfg.installed_version),
             latest: None,
+            latest_tag: None,
             has_update: false,
             asset_name: None,
             asset_url: None,
@@ -1348,7 +1460,7 @@ fn resolve_asset(app: &AppHandle) -> Result<TgwsAsset, String> {
         .asset_url
         .ok_or("Релиз прокси ещё не опубликован — скачивание недоступно.")?;
     let version = info
-        .latest
+        .latest_tag
         .ok_or("В релизе прокси не указана версия — обновление отменено.")?;
     let digest = info
         .digest
@@ -1625,7 +1737,7 @@ mod tests {
         let cached = CachedRelease {
             repo: REPO.to_string(),
             at: now_secs(),
-            latest: "1.11.2-1".into(),
+            latest: "1.11.4-1".into(),
             asset_name: Some(ASSET_NAME.into()),
             asset_url: Some("https://github.com/a.exe".into()),
             asset_size: 15_000_000,
@@ -1634,10 +1746,58 @@ mod tests {
             published_at: None,
         };
         assert!(info_from(&cached, "", "").has_update);
-        assert!(!info_from(&cached, "1.11.2-1", "").has_update);
-        assert!(info_from(&cached, "1.11.2", "").has_update);
-        assert!(info_from(&cached, "1.11.2-1", "1.11.2-1").dismissed);
-        assert!(!info_from(&cached, "1.11.2-1", "1.11.2").dismissed);
+        assert!(!info_from(&cached, "1.11.4-1", "").has_update);
+        assert!(info_from(&cached, "1.11.2-1", "").has_update);
+        // A rebuild of the same upstream version is still a different binary.
+        assert!(!info_from(&cached, "1.11.4-2", "").has_update);
+        assert!(info_from(&cached, "1.11.4-1", "1.11.4-1").dismissed);
+        assert!(!info_from(&cached, "1.11.4-1", "1.11.4").dismissed);
+        assert!(!info_from(&cached, "1.11.4-1", "1.11.2-1").dismissed);
+
+        // `1.11.4-2` offered over an installed `1.11.4-1` is a real update.
+        let rebuilt = CachedRelease {
+            latest: "1.11.4-2".into(),
+            ..cached.clone()
+        };
+        assert!(info_from(&rebuilt, "1.11.4-1", "").has_update);
+    }
+
+    #[test]
+    fn the_upstream_version_is_what_the_user_sees() {
+        let cached = CachedRelease {
+            repo: REPO.to_string(),
+            at: now_secs(),
+            latest: "1.11.4-2".into(),
+            asset_name: Some(ASSET_NAME.into()),
+            asset_url: Some("https://github.com/a.exe".into()),
+            asset_size: 15_000_000,
+            digest: None,
+            release_url: Some("https://github.com/Dezuron/tgws-cli/releases/tag/v1.11.4-2".into()),
+            published_at: None,
+        };
+        let info = info_from(&cached, "1.11.2-1", "");
+        assert_eq!(info.installed, "1.11.2");
+        assert_eq!(info.latest.as_deref(), Some("1.11.4"));
+        // Never point the user at our mirror repository.
+        assert_eq!(
+            info.release_url.as_deref(),
+            Some("https://github.com/Flowseal/tg-ws-proxy/releases/tag/v1.11.4")
+        );
+
+        assert_eq!(upstream_version("v1.11.4-1"), "1.11.4");
+        assert_eq!(upstream_version("1.11.4"), "1.11.4");
+        assert_eq!(upstream_version("  "), "");
+        assert_eq!(upstream_release_url(""), None);
+
+        // Two builds of the same Flowseal release are told apart by revision.
+        let rebuilt = CachedRelease {
+            latest: "1.11.4-2".into(),
+            ..cached
+        };
+        let same = info_from(&rebuilt, "1.11.4-1", "");
+        assert_eq!(same.installed, "1.11.4 · 1");
+        assert_eq!(same.latest.as_deref(), Some("1.11.4 · 2"));
+        assert_eq!(same.latest_tag.as_deref(), Some("1.11.4-2"));
     }
 
     fn temp_dir(name: &str) -> PathBuf {

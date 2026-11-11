@@ -125,7 +125,7 @@ pub struct AppConfig {
     /// Custom folder for the zapret runtime. Empty means `%LOCALAPPDATA%\zapret-ui\runtime`.
     pub runtime_path: String,
     pub last_run_version: String,
-    /// UI theme: dark, gray or light.
+    /// UI theme: `dark`, `gray`, `carmine` or `stencil`.
     pub theme: String,
     pub tgws: TgwsConfig,
 }
@@ -220,7 +220,19 @@ fn parse_config(text: &str) -> Option<AppConfig> {
     // A UTF-8 BOM is valid for many editors but serde_json rejects it. Without
     // stripping it, a hand-edited config silently resets every setting.
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    serde_json::from_str(text).ok()
+    let mut cfg = serde_json::from_str::<AppConfig>(text).ok()?;
+    // `light` was replaced by the carmine theme in 1.3.0; users who picked it
+    // land on the theme that took its place instead of the default.
+    if cfg.theme.eq_ignore_ascii_case("light") {
+        cfg.theme = "carmine".into();
+    }
+    Some(cfg)
+}
+
+/// Whether a theme wants the dark native title bar. The stencil theme is the
+/// only paper-light one.
+pub fn theme_is_dark(theme: &str) -> bool {
+    !theme.eq_ignore_ascii_case("stencil")
 }
 
 pub fn load_config() -> AppConfig {
@@ -259,6 +271,19 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn legacy_light_theme_becomes_carmine() {
+        let cfg = AppConfig {
+            theme: "light".into(),
+            ..AppConfig::default()
+        };
+        let json = serde_json::to_string(&cfg).expect("serialize");
+        let parsed = parse_config(&json).expect("parse");
+        assert_eq!(parsed.theme, "carmine");
+        assert!(theme_is_dark("carmine"));
+        assert!(!theme_is_dark("stencil"));
     }
 
     #[test]

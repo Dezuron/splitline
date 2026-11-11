@@ -33,6 +33,8 @@ const textColor = computed(() => {
     v-bind="$attrs"
     :type="props.type"
     :disabled="props.disabled"
+    :data-variant="props.variant"
+    :data-size="props.size"
     :class="cn(buttonVariants({ variant: props.variant, size: props.size }), props.class)"
   >
     <span

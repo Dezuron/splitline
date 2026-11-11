@@ -6,9 +6,10 @@ const props = defineProps<{ class?: string }>();
 
 <template>
   <div
+    data-slot="card"
     :class="
       cn(
-        'rounded-xl border border-border bg-card text-card-foreground shadow-[0_18px_50px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.04)]',
+        'rounded-[var(--radius-lg)] border border-border bg-card text-card-foreground shadow-[var(--card-shadow)]',
         props.class,
       )
     "

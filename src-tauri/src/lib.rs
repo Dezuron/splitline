@@ -5,6 +5,7 @@ mod config;
 mod engine;
 mod error;
 mod generator;
+mod job;
 mod probe;
 mod runtime;
 mod strategy;
@@ -126,12 +127,12 @@ fn ensure_elevated() {
         if ok == 0 {
             let err = std::io::Error::last_os_error();
             let msg: Vec<u16> = format!(
-                "Не удалось запустить zapret-ui с правами администратора.\n\nОшибка: {err}\n\nЗапустите приложение через «Запуск от имени администратора»."
+                "Не удалось запустить Splitline с правами администратора.\n\nОшибка: {err}\n\nЗапустите приложение через «Запуск от имени администратора»."
             )
             .encode_utf16()
             .chain(std::iter::once(0))
             .collect();
-            let title: Vec<u16> = "zapret-ui"
+            let title: Vec<u16> = "Splitline"
                 .encode_utf16()
                 .chain(std::iter::once(0))
                 .collect();
@@ -238,11 +239,11 @@ fn ensure_windows_11() {
     }
 
     let message: Vec<u16> =
-        "zapret-ui поддерживается только на Windows 11 (build 22000 и новее).\n\nОбновите Windows."
+        "Splitline поддерживается только на Windows 11 (build 22000 и новее).\n\nОбновите Windows."
             .encode_utf16()
             .chain(std::iter::once(0))
             .collect();
-    let title: Vec<u16> = "zapret-ui"
+    let title: Vec<u16> = "Splitline"
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect();
@@ -297,7 +298,7 @@ fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         ensure_on_screen(&window);
         let _ = window.show();
-        apply_titlebar_theme(&window, config::load_config().theme != "light");
+        apply_titlebar_theme(&window, config::theme_is_dark(&config::load_config().theme));
         let _ = window.set_focus();
     }
 }
@@ -381,6 +382,7 @@ pub fn run() {
 
             let _tray = tauri::tray::TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
+                .tooltip("Splitline")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
@@ -415,7 +417,7 @@ pub fn run() {
 
             // Hide window on close (minimize to tray) instead of exiting
             if let Some(w) = app.get_webview_window("main") {
-                let dark = config::load_config().theme != "light";
+                let dark = config::theme_is_dark(&config::load_config().theme);
                 apply_titlebar_theme(&w, dark);
                 let window = w.clone();
                 w.on_window_event(move |event| {
