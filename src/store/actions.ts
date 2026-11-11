@@ -39,6 +39,7 @@ import {
   budget,
   running,
   currentName,
+  generatedRows,
   tgwsStatus,
   tgwsUpdate,
   tgwsLogs,
@@ -402,6 +403,26 @@ export async function deleteGenerated(name: string) {
     await invoke("delete_generated", { name });
     await refreshInternal(true);
     toast("success", `«${name}» удалена.`);
+  } catch (error) {
+    toast("error", String(error));
+  }
+}
+
+export async function deleteAllGenerated() {
+  if (benchRunning.value) return;
+  const count = generatedRows.value.length;
+  if (!count) return;
+  const { ok } = await confirmAction({
+    title: "Удалить все экспериментальные стратегии?",
+    text: `Будет удалено стратегий: ${count}. Активная стратегия останется, официальные не затрагиваются. Это действие нельзя отменить.`,
+    confirmLabel: "Удалить все",
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    const removed = await invoke<number>("delete_all_generated");
+    await refreshInternal(true);
+    toast("success", removed > 0 ? `Удалено стратегий: ${removed}.` : "Нечего удалять.");
   } catch (error) {
     toast("error", String(error));
   }

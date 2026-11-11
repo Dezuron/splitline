@@ -7,8 +7,9 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
 use windows_sys::Win32::System::Services::{
-    CloseServiceHandle, OpenSCManagerW, OpenServiceW, QueryServiceStatusEx, SC_MANAGER_CONNECT,
-    SC_STATUS_PROCESS_INFO, SERVICE_QUERY_STATUS, SERVICE_RUNNING, SERVICE_STATUS_PROCESS,
+    CloseServiceHandle, ControlService, OpenSCManagerW, OpenServiceW, QueryServiceStatusEx,
+    SC_MANAGER_CONNECT, SC_STATUS_PROCESS_INFO, SERVICE_CONTROL_STOP, SERVICE_QUERY_STATUS,
+    SERVICE_RUNNING, SERVICE_STATUS, SERVICE_STATUS_PROCESS, SERVICE_STOP, SERVICE_STOPPED,
 };
 
 const SERVICE_NAME: &str = "zapret";
@@ -57,6 +58,52 @@ fn image_of(entry: &PROCESSENTRY32W) -> String {
         .copied()
         .collect();
     String::from_utf16_lossy(&name)
+}
+
+/// Asks the SCM to stop a service and waits briefly for it to reach STOPPED.
+/// A missing service is not an error: there is simply nothing to stop.
+fn stop_service_named(name: &str) -> Result<(), String> {
+    let name = wide(name);
+    unsafe {
+        let manager = OpenSCManagerW(std::ptr::null(), std::ptr::null(), SC_MANAGER_CONNECT);
+        if manager.is_null() {
+            return Err("Не удалось открыть менеджер служб.".into());
+        }
+        let service = OpenServiceW(manager, name.as_ptr(), SERVICE_STOP | SERVICE_QUERY_STATUS);
+        CloseServiceHandle(manager);
+        if service.is_null() {
+            // Not installed (or already gone): nothing to stop.
+            return Ok(());
+        }
+
+        let mut status: SERVICE_STATUS = std::mem::zeroed();
+        ControlService(service, SERVICE_CONTROL_STOP, &mut status);
+        // Even when ControlService reports "already stopping", wait for STOPPED.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let mut stopped = false;
+        while std::time::Instant::now() < deadline {
+            let mut current: SERVICE_STATUS_PROCESS = std::mem::zeroed();
+            let mut needed = 0u32;
+            let queried = QueryServiceStatusEx(
+                service,
+                SC_STATUS_PROCESS_INFO,
+                &mut current as *mut _ as *mut u8,
+                std::mem::size_of::<SERVICE_STATUS_PROCESS>() as u32,
+                &mut needed,
+            );
+            if queried != 0 && current.dwCurrentState == SERVICE_STOPPED {
+                stopped = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        CloseServiceHandle(service);
+        if stopped {
+            Ok(())
+        } else {
+            Err("Служба zapret не остановилась за 2 секунды.".into())
+        }
+    }
 }
 
 /// Whether a process with this image name is running, read from a Toolhelp
@@ -214,6 +261,19 @@ impl Engine {
         service_state(SERVICE_NAME) == Some(SERVICE_RUNNING)
     }
 
+    /// Stops the bypass on application exit without removing the service.
+    ///
+    /// Done through the SCM instead of `sc stop`: spawning a console tool while
+    /// the session is shutting down is exactly what produced the
+    /// "taskkill.exe/sc.exe — 0xc0000142" dialog. If the service is missing,
+    /// already stopped or stopping, the call is a no-op.
+    pub fn stop_service() {
+        if !Self::is_running() {
+            return;
+        }
+        let _ = stop_service_named(SERVICE_NAME);
+    }
+
     /// Kill any winws.exe process by image name (fallback for orphaned processes).
     /// Runs synchronously: the bench has to be sure the previous candidate is gone
     /// before the next one starts.
@@ -283,5 +343,12 @@ mod tests {
             .to_string();
         assert!(image_running(&own), "own image {own} must be visible");
         assert!(!image_running("zapret-ui-nonexistent-image.exe"));
+    }
+
+    #[test]
+    fn stopping_a_missing_service_is_not_an_error() {
+        // The test must not touch the real `zapret` service: stopping it would
+        // disable the user's bypass.
+        assert!(stop_service_named("zapret-ui-nonexistent-service").is_ok());
     }
 }

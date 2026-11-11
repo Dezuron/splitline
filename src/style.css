@@ -790,11 +790,17 @@ input[type="range"] {
   text-transform: uppercase;
 }
 
-.list-subhead::after {
-  content: "";
+.list-subhead-line {
   flex: 1;
   height: 1px;
   background: var(--border);
+}
+
+.list-subhead .btn {
+  padding: 3px 8px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: none;
 }
 
 .strategy-row {
