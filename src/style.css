@@ -2,14 +2,6 @@
 
 @custom-variant dark (&:is(.dark *));
 
-@font-face {
-  font-family: "Anton";
-  src: url("./assets/fonts/Anton-Regular.ttf") format("truetype");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -32,30 +24,28 @@
 
 /* ---------- Design tokens ---------- */
 :root {
-  --accent: #5865f2;
-  --accent-hover: #4752c4;
-  --accent-soft: rgba(88, 101, 242, 0.14);
-  --accent-text: #b9beff;
-
-  --bg: #121216;
-  --bg-2: #17171c;
-  --surface: #1e1e24;
-  --surface-2: #26262f;
-  --surface-3: #30303a;
-
-  --text: #e7e8ec;
-  --text-2: #b7b9c1;
-  --text-3: #8f929c;
-
-  --border: #2b2b35;
-  --border-strong: #3a3a46;
-
-  --ok: #23a55a;
-  --ok-soft: rgba(35, 165, 90, 0.14);
-  --danger: #f23f43;
-  --danger-soft: rgba(242, 63, 67, 0.14);
-  --warn: #f0b232;
-  --warn-soft: rgba(240, 178, 50, 0.14);
+  /* Satellite (default) — orbit-dial dashboard, cyan on deep blue. */
+  color-scheme: dark;
+  --bg: #08131a;
+  --bg-2: #0a1720;
+  --surface: #0b1a23;
+  --surface-2: #0f2029;
+  --surface-3: #142a35;
+  --text: #e4f5ff;
+  --text-2: #b9dced;
+  --text-3: #7fa6b8;
+  --border: rgba(87, 215, 255, 0.16);
+  --border-strong: rgba(87, 215, 255, 0.3);
+  --accent: #57d7ff;
+  --accent-hover: #8ae6ff;
+  --accent-soft: rgba(87, 215, 255, 0.14);
+  --accent-text: #a9ecff;
+  --ok: #5ce0b0;
+  --ok-soft: rgba(92, 224, 176, 0.14);
+  --danger: #ff7a7a;
+  --danger-soft: rgba(255, 122, 122, 0.14);
+  --warn: #ffca6b;
+  --warn-soft: rgba(255, 202, 107, 0.14);
 
   --space-1: 4px;
   --space-2: 8px;
@@ -66,53 +56,53 @@
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
-  --btn-radius: 8px;
+  --btn-radius: 6px;
 
-  --ring: 0 0 0 2px rgba(88, 101, 242, 0.55);
+  --ring: 0 0 0 2px rgba(87, 215, 255, 0.45);
   --motion: 0.16s ease;
-  --shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  --shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
 
+  /* One UI face for the whole theme: Jura carries Cyrillic and Latin and is
+     used for headings, labels and controls alike. */
   --font:
     "Inter Variable", "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui,
     -apple-system, sans-serif;
   --mono: "Cascadia Code", "Consolas", monospace;
-  /* Poster face for the stencil theme (headings and controls only). */
-  --font-display: "Anton", "Arial Black", Impact, sans-serif;
-  --card-shadow: 0 18px 50px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --card-shadow: 0 0 0 1px rgba(87, 215, 255, 0.06), 0 18px 50px rgba(0, 0, 0, 0.45);
 
-  /* shadcn-vue semantic tokens (dark default) */
-  --background: #08090d;
-  --foreground: #f2f3f6;
-  --card: #1b1c23;
-  --card-foreground: #f2f3f6;
-  --popover: #1b1c23;
-  --popover-foreground: #f2f3f6;
-  --primary: #6772ff;
-  --primary-foreground: #ffffff;
-  --secondary: #292a33;
-  --secondary-foreground: #f2f3f6;
-  --muted: #22232b;
-  --muted-foreground: #9a9daa;
-  --accent-foreground: #f2f3f6;
-  --destructive: #f23f43;
-  --input: #343541;
-  --ring: #6772ff;
-  --radius: 10px;
+  /* shadcn-vue semantic tokens */
+  --background: #071118;
+  --foreground: #e4f5ff;
+  --card: #0b1a23;
+  --card-foreground: #e4f5ff;
+  --popover: #0a1720;
+  --popover-foreground: #e4f5ff;
+  --primary: #57d7ff;
+  --primary-foreground: #04121a;
+  --secondary: #0f2029;
+  --secondary-foreground: #e4f5ff;
+  --muted: #0d1b24;
+  --muted-foreground: #9cc4d4;
+  --accent-foreground: #e4f5ff;
+  --destructive: #ff7a7a;
+  --input: #1b3441;
+  --ring: #57d7ff;
+  --radius: 8px;
 
   /* shell / glass */
-  --app-bg: #09090d;
-  --app-glow-1: rgba(88, 101, 242, 0.3);
-  --app-glow-2: rgba(35, 165, 90, 0.16);
-  --app-glow-3: rgba(126, 87, 255, 0.18);
-  --glass-bg: rgba(24, 24, 34, 0.62);
-  --glass-bg-2: rgba(14, 14, 21, 0.58);
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --glass-highlight: rgba(255, 255, 255, 0.045);
-  --glass-shadow: rgba(0, 0, 0, 0.25);
-  --sidebar-bg: rgba(18, 18, 26, 0.74);
-  --topbar-bg: rgba(13, 13, 19, 0.48);
-  --hover-bg: rgba(255, 255, 255, 0.045);
-  --grid-line: rgba(255, 255, 255, 0.018);
+  --app-bg: #071118;
+  --app-glow-1: rgba(87, 215, 255, 0.2);
+  --app-glow-2: rgba(92, 224, 176, 0.1);
+  --app-glow-3: rgba(120, 150, 255, 0.08);
+  --glass-bg: rgba(11, 26, 35, 0.78);
+  --glass-bg-2: rgba(7, 17, 24, 0.68);
+  --glass-border: rgba(87, 215, 255, 0.16);
+  --glass-highlight: rgba(255, 255, 255, 0.05);
+  --glass-shadow: rgba(0, 0, 0, 0.4);
+  --sidebar-bg: rgba(7, 17, 24, 0.92);
+  --topbar-bg: rgba(7, 17, 24, 0.85);
+  --hover-bg: rgba(87, 215, 255, 0.08);
+  --grid-line: rgba(87, 215, 255, 0.06);
 }
 
 /* ---------- Reset / base ---------- */
@@ -624,8 +614,29 @@ button {
 .toolbar {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
   gap: var(--space-4);
-  padding-bottom: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+input[type="range"] {
+  accent-color: var(--accent);
+}
+
+.check-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.check-line input[type="checkbox"] {
+  accent-color: var(--accent);
 }
 
 .tool-group {
@@ -768,7 +779,10 @@ button {
 }
 
 .list-subhead {
-  padding: 8px 2px 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 2px 2px;
   color: var(--text-3);
   font-size: 9.5px;
   font-weight: 600;
@@ -776,33 +790,74 @@ button {
   text-transform: uppercase;
 }
 
+.list-subhead::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
 .strategy-row {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-2);
-  min-height: 46px;
-  padding: 8px 10px;
+  gap: 12px;
+  min-height: 54px;
+  padding: 10px 12px 10px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-2);
   transition:
     border-color var(--motion),
-    background var(--motion);
+    background var(--motion),
+    box-shadow var(--motion);
   cursor: pointer;
+}
+
+.strategy-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background var(--motion);
 }
 
 .strategy-row:hover {
   border-color: var(--border-strong);
+  background: var(--surface-3);
+}
+
+.strategy-row:hover::before {
+  background: color-mix(in oklab, var(--accent) 45%, transparent);
 }
 
 .strategy-row.selected {
   border-color: var(--accent);
-  background: color-mix(in oklab, var(--accent) 10%, transparent);
+  background: color-mix(in oklab, var(--accent) 8%, var(--surface-2));
+}
+
+.strategy-row.selected::before {
+  background: var(--accent);
 }
 
 .strategy-row.active {
-  border-color: rgba(35, 165, 90, 0.55);
+  border-color: rgba(35, 165, 90, 0.45);
+}
+
+.strategy-row.active .row-name::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  vertical-align: middle;
 }
 
 .strategy-row.selected.active {
@@ -845,13 +900,26 @@ button {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   color: var(--text-3);
-  font-size: 10px;
-  font-family: var(--mono);
+  font-size: 10.5px;
 }
 
-.row-metrics .bad {
+.metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.metric b {
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.metric.bad b {
   color: #ffa9ab;
 }
 
@@ -871,25 +939,31 @@ button {
 }
 
 .score {
-  min-width: 30px;
-  padding: 2px 6px;
+  display: grid;
+  place-items: center;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 6px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 10px;
+  background: var(--surface-3);
   color: var(--text-2);
   font-family: var(--mono);
-  font-size: 10.5px;
-  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .score.works,
 .verdict.works {
-  border-color: rgba(35, 165, 90, 0.5);
+  border-color: rgba(35, 165, 90, 0.45);
+  background: rgba(35, 165, 90, 0.12);
   color: #8ce7b1;
 }
 
 .score.partial,
 .verdict.partial {
-  border-color: rgba(240, 178, 50, 0.5);
+  border-color: rgba(240, 178, 50, 0.45);
+  background: rgba(240, 178, 50, 0.12);
   color: #f4d58a;
 }
 
@@ -897,15 +971,35 @@ button {
 .score.disqualified,
 .verdict.broken,
 .verdict.disqualified {
-  border-color: rgba(242, 63, 67, 0.45);
+  border-color: rgba(242, 63, 67, 0.4);
+  background: rgba(242, 63, 67, 0.12);
   color: #ffa9ab;
 }
 
 .verdict {
-  padding: 0 4px;
-  border: none;
+  padding: 1px 7px;
+  border: 1px solid transparent;
+  border-radius: 999px;
   font-family: var(--font);
-  font-size: 10px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.row-apply {
+  opacity: 0.45;
+  transition:
+    opacity var(--motion),
+    border-color var(--motion),
+    color var(--motion);
+}
+
+.strategy-row:hover .row-apply:not(:disabled),
+.strategy-row.selected .row-apply:not(:disabled) {
+  opacity: 1;
+  color: var(--accent-text);
+  border-color: color-mix(in oklab, var(--accent) 40%, transparent);
 }
 
 /* ---------- Maintenance ---------- */
@@ -1823,54 +1917,16 @@ body {
 }
 
 /* ---------- Themes ---------- */
-[data-theme="gray"] {
-  color-scheme: dark;
-  --bg: #26272d;
-  --bg-2: #2e2f36;
-  --surface: #34353d;
-  --surface-2: #3e4049;
-  --surface-3: #4a4c56;
-  --text: #f1f2f5;
-  --text-2: #d0d2d9;
-  --text-3: #a5a8b3;
-  --border: #4a4c57;
-  --border-strong: #5b5e6a;
-  --background: #26272d;
-  --foreground: #f1f2f5;
-  --card: #34353d;
-  --card-foreground: #f1f2f5;
-  --popover: #34353d;
-  --popover-foreground: #f1f2f5;
-  --primary: #6772ff;
-  --primary-foreground: #fff;
-  --secondary: #3e4049;
-  --secondary-foreground: #f1f2f5;
-  --muted: #35363e;
-  --muted-foreground: #b0b3bd;
-  --input: #555865;
-  --app-bg: #24252b;
-  --app-glow-1: rgba(88, 101, 242, 0.22);
-  --app-glow-2: rgba(35, 165, 90, 0.1);
-  --app-glow-3: rgba(126, 87, 255, 0.12);
-  --glass-bg: rgba(61, 63, 73, 0.72);
-  --glass-bg-2: rgba(36, 37, 43, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.11);
-  --glass-highlight: rgba(255, 255, 255, 0.075);
-  --glass-shadow: rgba(0, 0, 0, 0.25);
-  --sidebar-bg: rgba(36, 37, 43, 0.84);
-  --topbar-bg: rgba(33, 34, 40, 0.68);
-  --hover-bg: rgba(255, 255, 255, 0.075);
-  --grid-line: rgba(255, 255, 255, 0.03);
-}
+/* ---------- Satellite: orbit-dial dashboard, cyan on deep blue ---------- */
 
 /* ---------- Carmine: flat near-black with a crimson accent ---------- */
 [data-theme="carmine"] {
   color-scheme: dark;
   --bg: #161616;
   --bg-2: #1b1b1b;
-  --surface: #252525;
-  --surface-2: #2c2c2c;
-  --surface-3: #353535;
+  --surface: #1c1c1c;
+  --surface-2: #242424;
+  --surface-3: #2c2c2c;
   --text: #e7e7e7;
   --text-2: #c8c8c8;
   --text-3: #949494;
@@ -1888,9 +1944,9 @@ body {
   --warn-soft: rgba(255, 213, 79, 0.14);
   --background: #161616;
   --foreground: #e7e7e7;
-  --card: #252525;
+  --card: #1c1c1c;
   --card-foreground: #e7e7e7;
-  --popover: #1f1f1f;
+  --popover: #1c1c1c;
   --popover-foreground: #e7e7e7;
   --primary: #e81c5a;
   --primary-foreground: #ffffff;
@@ -1913,147 +1969,11 @@ body {
   --topbar-bg: rgba(15, 15, 15, 0.7);
   --hover-bg: rgba(255, 255, 255, 0.06);
   --grid-line: rgba(255, 255, 255, 0.025);
-  --card-shadow: 0 14px 34px rgba(0, 0, 0, 0.38);
+  --card-shadow: none;
   --btn-radius: 6px;
-}
-
-/* ---------- Stencil: poster paper, ink and red ---------- */
-[data-theme="stencil"] {
-  color-scheme: light;
-  --bg: #ece5d8;
-  --bg-2: #f3eee4;
-  --surface: #faf6ec;
-  --surface-2: #f0e9db;
-  --surface-3: #e3dac7;
-  --text: #17130f;
-  --text-2: #3d362d;
-  --text-3: #6b6154;
-  --border: rgba(23, 19, 15, 0.3);
-  --border-strong: #17130f;
-  --accent: #d8382b;
-  --accent-hover: #b92b1f;
-  --accent-soft: rgba(216, 56, 43, 0.14);
-  --accent-text: #a8261b;
-  --ok: #1f7a3a;
-  --ok-soft: rgba(31, 122, 58, 0.12);
-  --danger: #c0261c;
-  --danger-soft: rgba(192, 38, 28, 0.12);
-  --warn: #8a5a00;
-  --warn-soft: rgba(138, 90, 0, 0.12);
-  --background: #ece5d8;
-  --foreground: #17130f;
-  --card: #f7f2e6;
-  --card-foreground: #17130f;
-  --popover: #f7f2e6;
-  --popover-foreground: #17130f;
-  --primary: #17130f;
-  --primary-foreground: #f7f2e6;
-  --secondary: #e4dccb;
-  --secondary-foreground: #17130f;
-  --muted: #e9e1d0;
-  --muted-foreground: #5c5346;
-  --input: #c9bda6;
-  --ring: #d8382b;
-  --app-bg: #e5ddcd;
-  --app-glow-1: rgba(216, 56, 43, 0.12);
-  --app-glow-2: rgba(23, 19, 15, 0.05);
-  --app-glow-3: rgba(216, 56, 43, 0.08);
-  --glass-bg: rgba(250, 246, 236, 0.74);
-  --glass-bg-2: rgba(240, 233, 219, 0.82);
-  --glass-border: rgba(23, 19, 15, 0.24);
-  --glass-highlight: rgba(255, 255, 255, 0.7);
-  --glass-shadow: rgba(23, 19, 15, 0.12);
-  --sidebar-bg: rgba(243, 238, 228, 0.9);
-  --topbar-bg: rgba(236, 229, 216, 0.82);
-  --hover-bg: rgba(23, 19, 15, 0.07);
-  --grid-line: rgba(23, 19, 15, 0.05);
-  --card-shadow: 5px 5px 0 #17130f;
-  --radius: 2px;
-  --radius-sm: 2px;
-  --radius-md: 3px;
-  --radius-lg: 4px;
-  --btn-radius: 2px;
-}
-
-[data-theme="stencil"] h1,
-[data-theme="stencil"] h2,
-[data-theme="stencil"] h3,
-[data-theme="stencil"] .panel-head h2,
-[data-theme="stencil"] .card-title,
-[data-theme="stencil"] .btn,
-[data-theme="stencil"] .ui-button,
-[data-theme="stencil"] .nav-item,
-[data-theme="stencil"] .status-chip {
-  font-family: var(--font-display);
-  font-weight: 400;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-[data-theme="stencil"] [data-slot="card"],
-[data-theme="stencil"] .panel {
-  border-width: 2px;
-  border-color: var(--border-strong);
-}
-
-[data-theme="stencil"] .btn,
-[data-theme="stencil"] .ui-button {
-  border: 2px solid var(--text);
-  border-radius: 2px;
-  box-shadow: 3px 3px 0 var(--text);
-}
-
-[data-theme="stencil"] .btn:hover:not(:disabled),
-[data-theme="stencil"] .ui-button:hover:not(:disabled) {
-  transform: translate(-1px, -1px);
-  box-shadow: 4px 4px 0 var(--text);
-}
-
-[data-theme="stencil"] .btn:active:not(:disabled),
-[data-theme="stencil"] .ui-button:active:not(:disabled) {
-  transform: translate(2px, 2px);
-  box-shadow: 1px 1px 0 var(--text);
-}
-
-[data-theme="stencil"] .btn.primary,
-[data-theme="stencil"] .ui-button[data-variant="default"] {
-  background: var(--accent);
-  background-image: none;
-  border-color: var(--text);
-  color: #fff;
-}
-
-[data-theme="stencil"] .ui-button[data-variant="default"] span {
-  color: #fff !important;
-}
-
-[data-theme="stencil"] .nav-item.active {
-  color: var(--text);
-  background: var(--accent-soft);
-}
-
-[data-theme="stencil"] .setup-wizard {
-  background: rgba(236, 229, 216, 0.95);
-}
-
-[data-theme="stencil"] .modal-backdrop {
-  background: rgba(23, 19, 15, 0.4);
-}
-
-[data-theme="stencil"] .status-chip.ok {
-  color: #146c39;
-}
-
-[data-theme="stencil"] .status-chip.danger {
-  color: #b3262d;
-}
-
-[data-theme="stencil"] .update-pill {
-  color: #805400;
-}
-
-[data-theme="stencil"] .brand-icon {
-  box-shadow: 2px 2px 0 #17130f;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
 }
 
 /* ---------- Main page controls ---------- */
@@ -2274,7 +2194,7 @@ body {
 
 .theme-picker {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 7px;
 }
 
@@ -2309,16 +2229,12 @@ body {
   background: linear-gradient(145deg, #15161b, #272832);
 }
 
-.theme-preview[data-theme-preview="gray"] {
-  background: linear-gradient(145deg, #23242a, #3a3c45);
+.theme-preview[data-theme-preview="satellite"] {
+  background: radial-gradient(circle at 70% 72%, #57d7ff, #0b1a23 62%);
 }
 
 .theme-preview[data-theme-preview="carmine"] {
   background: linear-gradient(145deg, #1b1b1b, #e81c5a);
-}
-
-.theme-preview[data-theme-preview="stencil"] {
-  background: linear-gradient(145deg, #ece5d8 0 56%, #d8382b 56% 70%, #17130f 70%);
 }
 
 /* Slightly dimensional legacy buttons too */
@@ -2354,14 +2270,6 @@ body {
   box-shadow:
     0 6px 18px rgba(242, 63, 67, 0.18),
     inset 0 1px 0 rgba(255, 255, 255, 0.2);
-}
-
-[data-theme="stencil"] .btn {
-  box-shadow: 3px 3px 0 var(--text);
-}
-
-[data-theme="stencil"] .btn:hover:not(:disabled) {
-  box-shadow: 4px 4px 0 var(--text);
 }
 
 @media (max-width: 900px) {
@@ -2483,38 +2391,6 @@ body {
   cursor: nesw-resize;
 }
 
-/* Poster-theme contrast for strategy score/verdict pills */
-[data-theme="stencil"] .score.works,
-[data-theme="stencil"] .verdict.works {
-  border-color: rgba(20, 108, 57, 0.45);
-  background: rgba(29, 138, 74, 0.08);
-  color: #146c39;
-}
-
-[data-theme="stencil"] .score.partial,
-[data-theme="stencil"] .verdict.partial {
-  border-color: rgba(128, 84, 0, 0.45);
-  background: rgba(166, 106, 0, 0.08);
-  color: #805400;
-}
-
-[data-theme="stencil"] .score.broken,
-[data-theme="stencil"] .score.disqualified,
-[data-theme="stencil"] .verdict.broken,
-[data-theme="stencil"] .verdict.disqualified {
-  border-color: rgba(179, 38, 45, 0.45);
-  background: rgba(217, 54, 62, 0.08);
-  color: #b3262d;
-}
-
-/* Flat working surfaces: no ambient gradient. */
-[data-theme="dark"] .app-shell,
-[data-theme="gray"] .app-shell,
-[data-theme="carmine"] .app-shell,
-[data-theme="stencil"] .app-shell {
-  background: var(--app-bg);
-}
-
 /* ---------- Tactile buttons ---------- */
 .btn,
 .ui-button {
@@ -2562,15 +2438,6 @@ body {
     inset 0 -1px 0 rgba(0, 0, 0, 0.26),
     0 3px 0 rgba(0, 0, 0, 0.24),
     0 9px 18px color-mix(in oklab, var(--accent) 30%, transparent);
-}
-
-/* The tactile primary shadow above would otherwise win over the poster one. */
-[data-theme="stencil"] .btn.primary {
-  box-shadow: 3px 3px 0 var(--text);
-}
-
-[data-theme="stencil"] .btn.primary:hover:not(:disabled) {
-  box-shadow: 4px 4px 0 var(--text);
 }
 
 /* ---------- Zapret toolbar ---------- */
@@ -2657,4 +2524,197 @@ body {
   .update-orbit.loading svg {
     animation: none;
   }
+}
+
+/* ---------- Carmine: AnteikuCheck-style flat UI ---------- */
+/* Solid surfaces, flat controls and uppercase labels: the crimson accent is the
+   only decoration, as in AnteikuCheck. */
+[data-theme="carmine"] .sidebar {
+  background: #161616;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+[data-theme="carmine"] .topbar {
+  background: linear-gradient(90deg, rgba(232, 28, 90, 0.12), transparent 42%), #0d0d0d;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+[data-theme="carmine"] h1,
+[data-theme="carmine"] h2,
+[data-theme="carmine"] h3,
+[data-theme="carmine"] .panel-head h2 {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+[data-theme="carmine"] [data-slot="card"],
+[data-theme="carmine"] .panel {
+  background: #1c1c1c;
+  border-color: rgba(255, 255, 255, 0.07);
+  box-shadow: none;
+}
+
+[data-theme="carmine"] .nav-item {
+  border-radius: 6px;
+}
+
+[data-theme="carmine"] .nav-item.active {
+  color: #fff;
+  background: color-mix(in oklab, var(--accent) 13%, transparent);
+  border-color: transparent;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+[data-theme="carmine"] .status-chip {
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+[data-theme="carmine"] input,
+[data-theme="carmine"] textarea,
+[data-theme="carmine"] select {
+  background: #1c1c1c;
+  border-color: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+}
+
+[data-theme="carmine"] .btn,
+[data-theme="carmine"] .ui-button {
+  box-shadow: none;
+  background-image: none;
+}
+
+[data-theme="carmine"] .btn:hover:not(:disabled),
+[data-theme="carmine"] .ui-button:hover:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+  background: #2a2a2a;
+  border-color: #333333;
+}
+
+[data-theme="carmine"] .btn:active:not(:disabled),
+[data-theme="carmine"] .ui-button:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+}
+
+[data-theme="carmine"] .btn.primary,
+[data-theme="carmine"] .ui-button[data-variant="default"] {
+  background: var(--accent);
+  background-image: none;
+  border-color: transparent;
+  color: #fff;
+  box-shadow: none;
+}
+
+[data-theme="carmine"] .btn.primary:hover:not(:disabled),
+[data-theme="carmine"] .ui-button[data-variant="default"]:hover:not(:disabled) {
+  background: var(--accent-hover);
+  box-shadow: none;
+}
+
+[data-theme="carmine"] .btn.danger,
+[data-theme="carmine"] .ui-button[data-variant="destructive"] {
+  background: var(--danger);
+  background-image: none;
+  box-shadow: none;
+}
+
+[data-theme="carmine"] .btn.danger:hover:not(:disabled),
+[data-theme="carmine"] .ui-button[data-variant="destructive"]:hover:not(:disabled) {
+  background: #e04b4f;
+  box-shadow: none;
+}
+
+[data-theme="carmine"] .modal,
+[data-theme="carmine"] .setup-wizard {
+  box-shadow: none;
+}
+
+/* ---------- Satellite: orbit dial and a live sweep ---------- */
+[data-theme="satellite"] .app-shell {
+  background:
+    radial-gradient(circle at 78% 118%, rgba(87, 215, 255, 0.12), transparent 55%), var(--app-bg);
+}
+
+[data-theme="satellite"] h1,
+[data-theme="satellite"] h2,
+[data-theme="satellite"] h3,
+[data-theme="satellite"] .panel-head h2,
+[data-theme="satellite"] .topbar-title {
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+[data-theme="satellite"] .topbar {
+  position: relative;
+  border-bottom: 1px solid rgba(87, 215, 255, 0.16);
+  overflow: hidden;
+}
+
+[data-theme="satellite"] .topbar::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(87, 215, 255, 0.9), transparent);
+  animation: satellite-sweep 6s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes satellite-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+[data-theme="satellite"] .sidebar-brand {
+  position: relative;
+}
+
+[data-theme="satellite"] .sidebar-brand::after {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: -6px;
+  width: 46px;
+  height: 46px;
+  border: 1px dashed rgba(87, 215, 255, 0.45);
+  border-radius: 50%;
+  animation: satellite-orbit 14s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes satellite-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+[data-theme="satellite"] .status-chip,
+[data-theme="satellite"] .chip {
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-theme="satellite"] .topbar::after,
+  [data-theme="satellite"] .sidebar-brand::after {
+    animation: none;
+  }
+}
+
+[data-theme="carmine"] .app-shell {
+  background: var(--app-bg);
 }
