@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-pub const REPO: &str = "Dezuron/zapret-ui";
+pub const REPO: &str = "Dezuron/splitline";
 const ASSET_NAME: &str = "Splitline.exe";
 /// Name the app shipped under before the rename. Releases from 1.3.0 publish
 /// both files so 1.2.x clients keep updating.

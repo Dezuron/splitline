@@ -2,7 +2,7 @@
 
 <p align="center">
   <img
-    src="https://img.shields.io/github/v/release/Dezuron/zapret-ui?style=flat-square&amp;color=303036&amp;label=version"
+    src="https://img.shields.io/github/v/release/Dezuron/splitline?style=flat-square&amp;color=303036&amp;label=version"
     alt="Версия"
   />
   <img src="https://img.shields.io/badge/Windows-11%20x64-303036?style=flat-square" alt="Windows 11 x64" />
