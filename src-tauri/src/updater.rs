@@ -15,9 +15,20 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 pub const REPO: &str = "Dezuron/zapret-ui";
-const ASSET_NAME: &str = "zapret-ui.exe";
-const BACKUP_NAME: &str = "zapret-ui_old.exe";
+const ASSET_NAME: &str = "Splitline.exe";
+/// Name the app shipped under before the rename. Releases from 1.3.0 publish
+/// both files so 1.2.x clients keep updating.
+const LEGACY_ASSET_NAME: &str = "zapret-ui.exe";
 const MAX_UPDATE_BYTES: u64 = 200 * 1024 * 1024;
+
+/// Backup of the currently running exe, next to it: `Splitline_old.exe`.
+fn backup_name(current: &Path) -> OsString {
+    let stem = current
+        .file_stem()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| "app".into());
+    OsString::from(format!("{stem}_old.exe"))
+}
 
 #[derive(Debug, Deserialize)]
 struct Release {
@@ -51,7 +62,7 @@ pub struct UpdateInfo {
 
 fn client(timeout: Duration) -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder()
-        .user_agent(format!("zapret-ui/{}", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("splitline/{}", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(15))
         .timeout(timeout)
         .build()
@@ -118,10 +129,15 @@ fn valid_digest(digest: Option<&str>) -> bool {
 }
 
 fn select_asset(release: &Release) -> Option<&Asset> {
-    release
-        .assets
-        .iter()
-        .find(|asset| asset.name == ASSET_NAME && valid_digest(asset.digest.as_deref()))
+    let usable = |name: &str| {
+        release
+            .assets
+            .iter()
+            .find(|asset| asset.name == name && valid_digest(asset.digest.as_deref()))
+    };
+    // Prefer the current name; fall back to the pre-rename asset so an
+    // older release (or a partially staged one) can still be installed.
+    usable(ASSET_NAME).or_else(|| usable(LEGACY_ASSET_NAME))
 }
 
 pub fn check() -> Result<Option<UpdateInfo>, String> {
@@ -211,7 +227,7 @@ fn replace_and_restart(downloaded: &Path) -> Result<(), String> {
     let parent = current
         .parent()
         .ok_or("Не удалось определить папку приложения.")?;
-    let backup = parent.join(BACKUP_NAME);
+    let backup = parent.join(backup_name(&current));
 
     let _ = fs::remove_file(&backup);
     if backup.exists() {
@@ -259,7 +275,7 @@ pub fn apply_latest(app: &tauri::AppHandle) -> Result<(), String> {
         return Err("Установлена последняя версия приложения.".into());
     }
     let asset = select_asset(&release).ok_or(
-        "В релизе нет файла zapret-ui.exe с корректной SHA-256 суммой — обновитесь со страницы релиза.",
+        "В релизе нет файла Splitline.exe с корректной SHA-256 суммой — обновитесь со страницы релиза.",
     )?;
 
     let _ = app.emit("app-update-progress", "Скачивание обновления…");
@@ -276,7 +292,9 @@ pub fn cleanup_backup() {
     let Some(parent) = current.parent() else {
         return;
     };
-    let _ = fs::remove_file(parent.join(BACKUP_NAME));
+    let _ = fs::remove_file(parent.join(backup_name(&current)));
+    // Backups left by builds that shipped under the old name.
+    let _ = fs::remove_file(parent.join("zapret-ui_old.exe"));
 }
 
 #[cfg(test)]

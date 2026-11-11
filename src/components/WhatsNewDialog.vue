@@ -25,9 +25,9 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
         class="modal whats-new-modal"
         role="dialog"
         aria-modal="true"
-        :aria-label="`Что нового в zapret-ui ${whatsNew.version}`"
+        :aria-label="`Что нового в Splitline ${whatsNew.version}`"
       >
-        <h3>Что нового в zapret-ui {{ whatsNew.version }}</h3>
+        <h3>Что нового в Splitline {{ whatsNew.version }}</h3>
         <MarkdownBody class="whats-new-notes" :source="whatsNew.notes" />
 
         <div class="modal-actions">

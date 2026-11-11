@@ -31,6 +31,7 @@ import {
   config,
   copyTgwsLink,
   dismissTgwsUpdate,
+  openReleasePage,
   openTgwsInTelegram,
   refreshTgws,
   regenerateTgwsSecret,
@@ -225,13 +226,21 @@ async function commitSecret() {
       <CardContent class="tgws-update-content">
         <div class="tgws-update-icon"><Download :size="18" /></div>
         <div class="tgws-update-text">
-          <strong>Доступно обновление прокси {{ tgwsUpdate.latest }}</strong>
+          <strong>Доступно обновление прокси Flowseal {{ tgwsUpdate.latest }}</strong>
           <span>
             Установлено: {{ tgwsUpdate.installed || "неизвестно" }}
             <template v-if="tgwsUpdate.asset_size">
               · {{ formatBytes(tgwsUpdate.asset_size) }}
             </template>
           </span>
+          <button
+            v-if="tgwsUpdate.release_url"
+            type="button"
+            class="tgws-update-link"
+            @click="openReleasePage(tgwsUpdate.release_url as string)"
+          >
+            Что нового в Flowseal/tg-ws-proxy
+          </button>
         </div>
         <div class="tgws-update-actions">
           <Button variant="ghost" size="sm" :disabled="tgwsBusy" @click="dismissTgwsUpdate">
@@ -592,6 +601,21 @@ async function commitSecret() {
 .tgws-update-text span {
   color: var(--text-3);
   font-size: 11px;
+}
+
+.tgws-update-link {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.tgws-update-link:hover {
+  text-decoration: underline;
 }
 
 .tgws-update-actions {

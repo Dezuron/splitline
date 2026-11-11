@@ -58,10 +58,19 @@ let unlisteners: Array<() => void> = [];
 let initialized = false;
 let budgetInitialized = false;
 
+export const THEMES = ["dark", "gray", "carmine", "stencil"] as const;
+export type ThemeId = (typeof THEMES)[number];
+
+export function isThemeId(value: string | undefined): value is ThemeId {
+  return !!value && (THEMES as readonly string[]).includes(value);
+}
+
 export function applyTheme(theme: string | undefined) {
-  const normalized = theme === "light" || theme === "gray" ? theme : "dark";
+  const normalized: ThemeId = isThemeId(theme) ? theme : "dark";
   document.documentElement.dataset.theme = normalized;
-  document.documentElement.classList.toggle("dark", normalized !== "light");
+  // The `dark` class drives Tailwind/shadcn `dark:` variants; the stencil
+  // theme is a paper-light theme, everything else is dark.
+  document.documentElement.classList.toggle("dark", normalized !== "stencil");
 }
 
 async function refreshInternal(quiet: boolean) {
@@ -450,7 +459,7 @@ export async function applyAppUpdate() {
   }
 }
 
-export async function setTheme(theme: "dark" | "gray" | "light") {
+export async function setTheme(theme: ThemeId) {
   applyTheme(theme);
   try {
     await invoke("set_theme", { theme });
@@ -762,7 +771,9 @@ export async function applyTgwsUpdate() {
 }
 
 export async function dismissTgwsUpdate() {
-  const tag = tgwsUpdate.value?.latest;
+  // Dismiss by the exact mirror tag: a rebuild of the same upstream version
+  // must be shown again.
+  const tag = tgwsUpdate.value?.latest_tag ?? tgwsUpdate.value?.latest;
   if (!tag) return;
   try {
     await invoke("dismiss_tgws_update", { tag });

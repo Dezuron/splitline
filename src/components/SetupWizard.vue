@@ -23,7 +23,7 @@ const step = ref<1 | 2 | 3>(1);
       </div>
 
       <div v-show="step === 1">
-        <h2>Добро пожаловать в zapret-ui</h2>
+        <h2>Добро пожаловать в Splitline</h2>
         <p class="setup-text">
           Приложение управляет обходом DPI для Discord и YouTube. Для работы нужен flowseal-zapret
           (zapret-discord-youtube от Flowseal): около 10 МБ, скачивается с GitHub и распаковывается

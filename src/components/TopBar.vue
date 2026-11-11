@@ -8,7 +8,7 @@ import { appUpdate, statusText, statusTone, updateInfo } from "../store";
 const route = useRoute();
 const router = useRouter();
 
-const title = computed(() => (route.meta.title as string | undefined) ?? "zapret-ui");
+const title = computed(() => (route.meta.title as string | undefined) ?? "Splitline");
 const hasUpdate = computed(
   () => !!appUpdate.value?.available || !!updateInfo.value?.update_available,
 );

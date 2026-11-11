@@ -16,7 +16,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: openMock }));
 vi.mock("../lib/confirm", () => ({ confirmAction: confirmMock }));
 vi.mock("../lib/toast", () => ({ toast: toastMock }));
 
-import { checkUpdate, chooseRuntimeFolder, dismissWhatsNew } from "./actions";
+import { applyTheme, checkUpdate, chooseRuntimeFolder, dismissWhatsNew } from "./actions";
 
 const statusFixture: AppStatus = {
   app_version: "1.2.0",
@@ -47,6 +47,23 @@ const configFixture: ConfigView = {
     installed_version: "",
   },
 };
+
+describe("themes", () => {
+  it("applies known themes and falls back to dark", () => {
+    applyTheme("carmine");
+    expect(document.documentElement.dataset.theme).toBe("carmine");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+
+    applyTheme("stencil");
+    expect(document.documentElement.dataset.theme).toBe("stencil");
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+
+    // The removed `light` theme falls back to the default.
+    applyTheme("light");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+  });
+});
 
 describe("folder selection", () => {
   beforeEach(() => {
