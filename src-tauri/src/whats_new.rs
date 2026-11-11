@@ -18,7 +18,7 @@ pub fn current() -> Option<WhatsNew> {
     let version = env!("CARGO_PKG_VERSION").to_string();
     let notes = extract_section(CHANGELOG, &version)?;
     Some(WhatsNew {
-        url: format!("https://github.com/Dezuron/zapret-ui/releases/tag/v{version}"),
+        url: format!("https://github.com/Dezuron/splitline/releases/tag/v{version}"),
         version,
         notes,
     })

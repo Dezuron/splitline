@@ -7,9 +7,9 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Dezuron/zapret-ui.git"
+    "url": "https://github.com/Dezuron/splitline.git"
   },
-  "homepage": "https://github.com/Dezuron/zapret-ui",
+  "homepage": "https://github.com/Dezuron/splitline",
   "type": "module",
   "scripts": {
     "dev": "vite",
