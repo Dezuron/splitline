@@ -210,7 +210,7 @@ pub fn get_config(state: State<'_, AppState>) -> AppResult<ConfigView> {
             host: cfg.tgws.host.clone(),
             port: cfg.tgws.port,
             secret: cfg.tgws.secret.clone(),
-            installed_version: cfg.tgws.installed_version.clone(),
+            installed_version: crate::tgws::upstream_version(&cfg.tgws.installed_version),
         },
     })
 }

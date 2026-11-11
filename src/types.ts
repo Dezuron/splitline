@@ -65,6 +65,7 @@ export interface TgwsNotice {
 export interface TgwsUpdateInfo {
   installed: string;
   latest: string | null;
+  latest_tag: string | null;
   has_update: boolean;
   asset_name: string | null;
   asset_url: string | null;
