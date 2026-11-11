@@ -15,10 +15,10 @@ import { appVersion } from "../store";
 const collapsed = ref(false);
 
 const items = [
-  { to: "/", label: "Главная", icon: LayoutDashboard },
-  { to: "/zapret", label: "Zapret", icon: ShieldCheck },
-  { to: "/telegram", label: "Telegram", icon: Send },
-  { to: "/settings", label: "Настройки", icon: Settings2 },
+  { to: "/", id: "dashboard", label: "Главная", icon: LayoutDashboard },
+  { to: "/zapret", id: "zapret", label: "Zapret", icon: ShieldCheck },
+  { to: "/telegram", id: "telegram", label: "Telegram", icon: Send },
+  { to: "/settings", id: "settings", label: "Настройки", icon: Settings2 },
 ];
 </script>
 
@@ -37,6 +37,7 @@ const items = [
         :key="item.to"
         :to="item.to"
         class="nav-item"
+        :data-icon="item.id"
         active-class=""
         exact-active-class="active"
         :title="collapsed ? item.label : undefined"
