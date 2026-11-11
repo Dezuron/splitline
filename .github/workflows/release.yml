@@ -140,16 +140,8 @@ jobs:
           if (-not $setup) { throw "NSIS installer was not produced" }
           Copy-Item $setup.FullName "$stage/Splitline_${version}_x64-setup.exe"
 
-          $hashes = Get-FileHash @(
-            "$stage/Splitline.exe",
-            "$stage/zapret-ui.exe",
-            "$stage/Splitline_${version}_x64_portable.zip",
-            "$stage/Splitline_${version}_x64-setup.exe"
-          ) -Algorithm SHA256
-          $hashes | ForEach-Object {
-            "$($_.Hash.ToLower())  $([IO.Path]::GetFileName($_.Path))"
-          } | Set-Content "$stage/SHA256SUMS.txt"
-
+          # No SHA256SUMS.txt: GitHub publishes a `sha256:<hex>` digest for every
+          # uploaded asset, and the updater verifies that digest (updater.rs).
           Get-ChildItem $stage | Format-Table Name, Length
 
       # SignPath is added after the OSS application is approved (see TODO.md).

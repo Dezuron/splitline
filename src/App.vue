@@ -49,7 +49,11 @@ watch(
     <div class="app-main">
       <TopBar />
       <main class="page-content">
-        <RouterView />
+        <RouterView v-slot="{ Component, route: currentRoute }">
+          <Transition name="page" mode="out-in">
+            <component :is="Component" :key="currentRoute.path" />
+          </Transition>
+        </RouterView>
       </main>
     </div>
 
