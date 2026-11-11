@@ -51,17 +51,26 @@ function onKeydown(event: KeyboardEvent) {
       </div>
 
       <div v-if="props.row.bench" class="row-metrics">
-        <span>D {{ props.row.bench.discord_ok }}/{{ props.row.bench.discord_total }}</span>
-        <span>Y {{ props.row.bench.youtube_ok }}/{{ props.row.bench.youtube_total }}</span>
-        <span :class="{ bad: props.row.bench.control_ok < props.row.bench.control_total }">
-          C {{ props.row.bench.control_ok }}/{{ props.row.bench.control_total }}
+        <span class="metric">
+          <b>{{ props.row.bench.discord_ok }}/{{ props.row.bench.discord_total }}</b> Discord
         </span>
-        <span>{{ props.row.bench.avg_ms || "—" }} мс</span>
+        <span class="metric">
+          <b>{{ props.row.bench.youtube_ok }}/{{ props.row.bench.youtube_total }}</b> YouTube
+        </span>
+        <span
+          class="metric"
+          :class="{ bad: props.row.bench.control_ok < props.row.bench.control_total }"
+        >
+          <b>{{ props.row.bench.control_ok }}/{{ props.row.bench.control_total }}</b> контроль
+        </span>
+        <span class="metric">
+          <b>{{ props.row.bench.avg_ms || "—" }}</b> мс
+        </span>
         <span class="verdict" :class="props.row.bench.verdict">
           {{ verdictLabel[props.row.bench.verdict] }}
         </span>
       </div>
-      <div v-else-if="props.row.generated" class="row-metrics muted">
+      <div v-else-if="props.row.generated" class="row-preview muted">
         создана из «{{ props.row.parent }}» · нет данных
       </div>
       <div v-else class="row-preview">
@@ -70,11 +79,16 @@ function onKeydown(event: KeyboardEvent) {
     </div>
 
     <div class="row-side">
-      <span v-if="props.row.bench" class="score" :class="props.row.bench.verdict">
+      <span
+        v-if="props.row.bench"
+        class="score"
+        :class="props.row.bench.verdict"
+        :title="`${props.row.bench.score}/100 · ${verdictLabel[props.row.bench.verdict]}`"
+      >
         {{ props.row.bench.score }}
       </span>
       <button
-        class="icon-btn"
+        class="icon-btn row-apply"
         :disabled="props.disabled || props.row.active"
         :aria-label="`Применить стратегию ${props.row.name}`"
         title="Применить"

@@ -349,6 +349,7 @@ pub fn run() {
             commands::quick_check,
             commands::apply_candidate,
             commands::delete_generated,
+            commands::delete_all_generated,
             commands::get_last_bench,
             commands::get_tgws_status,
             commands::start_tgws,
@@ -509,7 +510,11 @@ pub fn run() {
                 event,
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
             ) {
+                // Telegram proxy: a child process, stopped through the job object.
                 crate::tgws::stop_on_exit(app_handle);
+                // DPI bypass: a Windows service, stopped through the SCM (never
+                // by spawning `sc.exe`, which fails during session shutdown).
+                crate::engine::Engine::stop_service();
             }
         });
 }

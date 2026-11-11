@@ -13,6 +13,7 @@ import {
   budget,
   busy,
   cancelBench,
+  deleteAllGenerated,
   deleteGenerated,
   gateMessage,
   generatedRows,
@@ -159,7 +160,18 @@ import {
       />
 
       <template v-if="generatedRows.length">
-        <div class="list-subhead">Экспериментальные</div>
+        <div class="list-subhead">
+          <span>Экспериментальные</span>
+          <span class="list-subhead-line" aria-hidden="true"></span>
+          <button
+            class="btn small"
+            :disabled="busy || benchRunning"
+            title="Удалить все экспериментальные стратегии, кроме активной"
+            @click="deleteAllGenerated"
+          >
+            Удалить все
+          </button>
+        </div>
         <StrategyRow
           v-for="row in generatedRows"
           :key="row.name"

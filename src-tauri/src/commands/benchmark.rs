@@ -534,6 +534,13 @@ pub fn delete_generated(state: State<'_, AppState>, name: String) -> AppResult<(
 }
 
 #[tauri::command]
+pub fn delete_all_generated(state: State<'_, AppState>) -> AppResult<usize> {
+    // The active strategy stays: removing it would stop the bypass mid-flight.
+    let active = lock_config(&state).last_strategy.clone();
+    Ok(generator::delete_all_generated(Some(active.as_str()))?)
+}
+
+#[tauri::command]
 pub fn get_last_bench(state: State<'_, AppState>) -> AppResult<Option<BenchSummary>> {
     if let Some(summary) = lock_unpoisoned(&state.last_bench).clone() {
         return Ok(Some(summary));

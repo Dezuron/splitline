@@ -125,7 +125,7 @@ pub struct AppConfig {
     /// Custom folder for the zapret runtime. Empty means `%LOCALAPPDATA%\zapret-ui\runtime`.
     pub runtime_path: String,
     pub last_run_version: String,
-    /// UI theme: `dark`, `gray`, `carmine` or `stencil`.
+    /// UI theme: `satellite` or `carmine`.
     pub theme: String,
     pub tgws: TgwsConfig,
 }
@@ -145,7 +145,7 @@ impl Default for AppConfig {
             check_app_updates: true,
             runtime_path: String::new(),
             last_run_version: String::new(),
-            theme: "dark".into(),
+            theme: "satellite".into(),
             tgws: TgwsConfig::default(),
         }
     }
@@ -221,18 +221,19 @@ fn parse_config(text: &str) -> Option<AppConfig> {
     // stripping it, a hand-edited config silently resets every setting.
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut cfg = serde_json::from_str::<AppConfig>(text).ok()?;
-    // `light` was replaced by the carmine theme in 1.3.0; users who picked it
-    // land on the theme that took its place instead of the default.
-    if cfg.theme.eq_ignore_ascii_case("light") {
-        cfg.theme = "carmine".into();
-    }
+    // Themes trimmed to satellite/carmine in 1.4: every old dark variant maps
+    // to satellite, the paper themes to carmine.
+    cfg.theme = match cfg.theme.to_ascii_lowercase().as_str() {
+        "carmine" => "carmine".into(),
+        "light" | "stencil" => "carmine".into(),
+        _ => "satellite".into(),
+    };
     Some(cfg)
 }
 
-/// Whether a theme wants the dark native title bar. The stencil theme is the
-/// only paper-light one.
-pub fn theme_is_dark(theme: &str) -> bool {
-    !theme.eq_ignore_ascii_case("stencil")
+/// Both remaining themes are dark, so the native title bar stays dark too.
+pub fn theme_is_dark(_theme: &str) -> bool {
+    true
 }
 
 pub fn load_config() -> AppConfig {
@@ -283,7 +284,27 @@ mod tests {
         let parsed = parse_config(&json).expect("parse");
         assert_eq!(parsed.theme, "carmine");
         assert!(theme_is_dark("carmine"));
-        assert!(!theme_is_dark("stencil"));
+        assert!(theme_is_dark("satellite"));
+    }
+
+    #[test]
+    fn legacy_dark_and_gray_map_to_the_new_themes() {
+        for old in ["dark", "gray", "orbital", "orbit"] {
+            let cfg = AppConfig {
+                theme: old.into(),
+                ..AppConfig::default()
+            };
+            let json = serde_json::to_string(&cfg).expect("serialize");
+            assert_eq!(parse_config(&json).expect("parse").theme, "satellite");
+        }
+        for old in ["stencil", "light"] {
+            let cfg = AppConfig {
+                theme: old.into(),
+                ..AppConfig::default()
+            };
+            let json = serde_json::to_string(&cfg).expect("serialize");
+            assert_eq!(parse_config(&json).expect("parse").theme, "carmine");
+        }
     }
 
     #[test]

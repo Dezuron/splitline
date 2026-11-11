@@ -49,19 +49,24 @@ const configFixture: ConfigView = {
 };
 
 describe("themes", () => {
-  it("applies known themes and falls back to dark", () => {
+  it("applies the two themes and maps legacy ids", () => {
+    applyTheme("satellite");
+    expect(document.documentElement.dataset.theme).toBe("satellite");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+
     applyTheme("carmine");
     expect(document.documentElement.dataset.theme).toBe("carmine");
     expect(document.documentElement.classList.contains("dark")).toBe(true);
 
-    applyTheme("stencil");
-    expect(document.documentElement.dataset.theme).toBe("stencil");
-    expect(document.documentElement.classList.contains("dark")).toBe(false);
-
-    // The removed `light` theme falls back to the default.
+    // Legacy ids are mapped to the themes that replaced them.
     applyTheme("light");
-    expect(document.documentElement.dataset.theme).toBe("dark");
-    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.dataset.theme).toBe("carmine");
+    applyTheme("dark");
+    expect(document.documentElement.dataset.theme).toBe("satellite");
+    applyTheme("gray");
+    expect(document.documentElement.dataset.theme).toBe("satellite");
+    applyTheme("stencil");
+    expect(document.documentElement.dataset.theme).toBe("carmine");
   });
 });
 

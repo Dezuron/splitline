@@ -42,10 +42,8 @@ import {
 } from "../store";
 
 const themes = [
-  { value: "dark" as const, label: "Тёмная" },
-  { value: "gray" as const, label: "Серая" },
+  { value: "satellite" as const, label: "Спутник" },
   { value: "carmine" as const, label: "Кармин" },
-  { value: "stencil" as const, label: "Трафарет" },
 ];
 
 const tgwsVersion = computed(() =>
