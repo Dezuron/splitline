@@ -16,6 +16,7 @@ const emit = defineEmits<{ "update:modelValue": [value: boolean] }>();
 
 <template>
   <SwitchRoot
+    data-slot="switch"
     :model-value="props.modelValue"
     :disabled="props.disabled"
     :class="
@@ -27,6 +28,7 @@ const emit = defineEmits<{ "update:modelValue": [value: boolean] }>();
     @update:model-value="emit('update:modelValue', $event)"
   >
     <SwitchThumb
+      data-slot="switch-thumb"
       class="pointer-events-none block size-5 rounded-full bg-[linear-gradient(180deg,#fff,#d8dbe6)] shadow-[0_2px_5px_rgba(0,0,0,0.35)] transition-transform data-[state=checked]:translate-x-5"
     />
   </SwitchRoot>
