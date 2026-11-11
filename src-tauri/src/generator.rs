@@ -386,6 +386,26 @@ pub fn delete_generated(name: &str) -> Result<(), String> {
     save_generated_to(&generated_path(), &list)
 }
 
+/// Removes every generated strategy except `keep` (the active one). Returns the
+/// number of removed entries; the official strategies are not touched.
+pub fn delete_all_generated_at(path: &Path, keep: Option<&str>) -> Result<usize, String> {
+    let list = load_generated_from(path);
+    let before = list.len();
+    let kept: Vec<GeneratedStrategy> = list
+        .into_iter()
+        .filter(|strategy| Some(strategy.name.as_str()) == keep)
+        .collect();
+    let removed = before - kept.len();
+    if removed > 0 {
+        save_generated_to(path, &kept)?;
+    }
+    Ok(removed)
+}
+
+pub fn delete_all_generated(keep: Option<&str>) -> Result<usize, String> {
+    delete_all_generated_at(&generated_path(), keep)
+}
+
 /// Appends new winners, skipping candidates whose arguments already exist.
 /// Existing strategies are kept so a search never wipes earlier results.
 pub fn merge_winners_at(
@@ -632,6 +652,49 @@ mod tests {
         let added = merge_winners_at(&path, vec![winner]).unwrap();
         assert_eq!(added[0].name, "auto-7", "scored name must survive saving");
         assert_eq!(load_generated_from(&path)[0].name, "auto-7");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_all_generated_keeps_the_active_strategy() {
+        let dir = std::env::temp_dir().join(format!(
+            "zapret-ui-gen-purge-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("generated.json");
+
+        let winner = |name: &str| GeneratedStrategy {
+            name: name.into(),
+            parent: "seed".into(),
+            args: vec![format!("--filter-tcp={name}")],
+            mutation: "test".into(),
+            score: None,
+            created_at: 1,
+        };
+        merge_winners_at(
+            &path,
+            vec![winner("auto-1"), winner("auto-2"), winner("auto-3")],
+        )
+        .unwrap();
+        assert_eq!(load_generated_from(&path).len(), 3);
+
+        // The active strategy survives, everything else goes.
+        assert_eq!(delete_all_generated_at(&path, Some("auto-2")).unwrap(), 2);
+        let left = load_generated_from(&path);
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].name, "auto-2");
+
+        // When the active strategy is an official one, every generated entry goes.
+        assert_eq!(
+            delete_all_generated_at(&path, Some("general (ALT11)")).unwrap(),
+            1
+        );
+        assert!(load_generated_from(&path).is_empty());
 
         let _ = fs::remove_dir_all(&dir);
     }

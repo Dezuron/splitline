@@ -77,10 +77,8 @@ pub fn set_theme(
     theme: String,
 ) -> AppResult<()> {
     let theme = match theme.as_str() {
-        "gray" => "gray",
-        "carmine" | "light" => "carmine",
-        "stencil" => "stencil",
-        _ => "dark",
+        "carmine" | "light" | "stencil" => "carmine",
+        _ => "satellite",
     };
     {
         let mut cfg = lock_config(&state);

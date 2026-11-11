@@ -39,6 +39,7 @@ import {
   budget,
   running,
   currentName,
+  generatedRows,
   tgwsStatus,
   tgwsUpdate,
   tgwsLogs,
@@ -58,19 +59,34 @@ let unlisteners: Array<() => void> = [];
 let initialized = false;
 let budgetInitialized = false;
 
-export const THEMES = ["dark", "gray", "carmine", "stencil"] as const;
+export const THEMES = ["satellite", "carmine"] as const;
 export type ThemeId = (typeof THEMES)[number];
+
+/** Themes from earlier builds: every dark variant collapses into satellite,
+ * and the old paper theme maps to carmine. */
+const LEGACY_THEMES: Record<string, ThemeId> = {
+  dark: "satellite",
+  gray: "satellite",
+  orbital: "satellite",
+  orbit: "satellite",
+  stencil: "carmine",
+  light: "carmine",
+};
 
 export function isThemeId(value: string | undefined): value is ThemeId {
   return !!value && (THEMES as readonly string[]).includes(value);
 }
 
+export function normalizeTheme(value: string | undefined): ThemeId {
+  if (isThemeId(value)) return value;
+  return (value && LEGACY_THEMES[value]) || "satellite";
+}
+
 export function applyTheme(theme: string | undefined) {
-  const normalized: ThemeId = isThemeId(theme) ? theme : "dark";
+  const normalized = normalizeTheme(theme);
   document.documentElement.dataset.theme = normalized;
-  // The `dark` class drives Tailwind/shadcn `dark:` variants; the stencil
-  // theme is a paper-light theme, everything else is dark.
-  document.documentElement.classList.toggle("dark", normalized !== "stencil");
+  // Both remaining themes are dark; keep Tailwind/shadcn `dark:` variants on.
+  document.documentElement.classList.add("dark");
 }
 
 async function refreshInternal(quiet: boolean) {
@@ -387,6 +403,26 @@ export async function deleteGenerated(name: string) {
     await invoke("delete_generated", { name });
     await refreshInternal(true);
     toast("success", `«${name}» удалена.`);
+  } catch (error) {
+    toast("error", String(error));
+  }
+}
+
+export async function deleteAllGenerated() {
+  if (benchRunning.value) return;
+  const count = generatedRows.value.length;
+  if (!count) return;
+  const { ok } = await confirmAction({
+    title: "Удалить все экспериментальные стратегии?",
+    text: `Будет удалено стратегий: ${count}. Активная стратегия останется, официальные не затрагиваются. Это действие нельзя отменить.`,
+    confirmLabel: "Удалить все",
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    const removed = await invoke<number>("delete_all_generated");
+    await refreshInternal(true);
+    toast("success", removed > 0 ? `Удалено стратегий: ${removed}.` : "Нечего удалять.");
   } catch (error) {
     toast("error", String(error));
   }
