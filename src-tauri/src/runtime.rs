@@ -48,7 +48,7 @@ pub fn installed_version(runtime_dir: &Path) -> Option<String> {
 
 fn http_client(timeout: Duration) -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder()
-        .user_agent("zapret-ui")
+        .user_agent("Splitline")
         .connect_timeout(Duration::from_secs(15))
         .timeout(timeout)
         .build()

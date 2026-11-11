@@ -116,24 +116,35 @@ jobs:
           $stage = "release-artifacts"
           New-Item -ItemType Directory -Force $stage | Out-Null
 
-          Copy-Item "src-tauri/target/release/zapret-ui.exe" "$stage/zapret-ui.exe"
+          # The binary name comes from `mainBinaryName`; fall back to the crate
+          # name so the workflow keeps working if that setting is dropped.
+          $built = @(
+            "src-tauri/target/release/Splitline.exe",
+            "src-tauri/target/release/zapret-ui.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $built) { throw "Built exe was not found in src-tauri/target/release" }
+
+          Copy-Item $built "$stage/Splitline.exe"
+          # Transition release: 1.2.x clients only look for `zapret-ui.exe`.
+          Copy-Item $built "$stage/zapret-ui.exe"
 
           # README/LICENSE/notices go into the portable zip, not into the release root.
           Compress-Archive -Path @(
-            "$stage/zapret-ui.exe",
+            "$stage/Splitline.exe",
             "README.md",
             "LICENSE",
             "THIRD_PARTY_NOTICES.md"
-          ) -DestinationPath "$stage/zapret-ui_${version}_x64_portable.zip" -Force
+          ) -DestinationPath "$stage/Splitline_${version}_x64_portable.zip" -Force
 
           $setup = Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe" | Select-Object -First 1
           if (-not $setup) { throw "NSIS installer was not produced" }
-          Copy-Item $setup.FullName "$stage/zapret-ui_${version}_x64-setup.exe"
+          Copy-Item $setup.FullName "$stage/Splitline_${version}_x64-setup.exe"
 
           $hashes = Get-FileHash @(
+            "$stage/Splitline.exe",
             "$stage/zapret-ui.exe",
-            "$stage/zapret-ui_${version}_x64_portable.zip",
-            "$stage/zapret-ui_${version}_x64-setup.exe"
+            "$stage/Splitline_${version}_x64_portable.zip",
+            "$stage/Splitline_${version}_x64-setup.exe"
           ) -Algorithm SHA256
           $hashes | ForEach-Object {
             "$($_.Hash.ToLower())  $([IO.Path]::GetFileName($_.Path))"
@@ -199,7 +210,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.build.outputs.tag }}
-          name: zapret-ui ${{ needs.build.outputs.version }}
+          name: Splitline ${{ needs.build.outputs.version }}
           body_path: release-notes.md
           files: release-artifacts/*
           draft: false

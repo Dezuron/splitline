@@ -57,6 +57,16 @@ https://github.com/basil00/WinDivert
 The upstream Flowseal runtime contains binaries originating from bol-van/zapret.
 Their copyright notice is retained above.
 
+## Anton (display font)
+
+- Source: https://fonts.google.com/specimen/Anton
+- Author: **Vernon Adams**
+- License: SIL Open Font License 1.1
+
+Used only by the `stencil` UI theme for headings and controls
+(`src/assets/fonts/Anton-Regular.ttf`). The full license text is available at
+https://openfontlicense.org/open-font-license-official-text/.
+
 ## Flowseal/tg-ws-proxy (Telegram WS proxy)
 
 - Repository: https://github.com/Flowseal/tg-ws-proxy

@@ -9,7 +9,7 @@ import {
   Settings2,
   ShieldCheck,
 } from "lucide-vue-next";
-import dyIcon from "../assets/dy.png";
+import logo from "../assets/logo.png";
 import { appVersion } from "../store";
 
 const collapsed = ref(false);
@@ -25,9 +25,9 @@ const items = [
 <template>
   <aside class="sidebar" :class="{ collapsed }" aria-label="Основная навигация">
     <div class="sidebar-brand">
-      <img class="brand-icon" :src="dyIcon" alt="" aria-hidden="true" />
+      <img class="brand-icon" :src="logo" alt="" aria-hidden="true" />
       <div v-if="!collapsed" class="brand-text">
-        <strong>zapret-ui</strong>
+        <strong>Splitline</strong>
       </div>
     </div>
 

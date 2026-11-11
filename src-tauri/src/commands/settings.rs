@@ -77,8 +77,9 @@ pub fn set_theme(
     theme: String,
 ) -> AppResult<()> {
     let theme = match theme.as_str() {
-        "light" => "light",
         "gray" => "gray",
+        "carmine" | "light" => "carmine",
+        "stencil" => "stencil",
         _ => "dark",
     };
     {
@@ -87,7 +88,7 @@ pub fn set_theme(
         config::save_config(&cfg)?;
     }
     if let Some(window) = tauri::Manager::get_webview_window(&app, "main") {
-        crate::apply_titlebar_theme(&window, theme != "light");
+        crate::apply_titlebar_theme(&window, config::theme_is_dark(theme));
     }
     Ok(())
 }

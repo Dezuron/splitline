@@ -2,8 +2,87 @@ use crate::sys;
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::time::Duration;
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+    CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+};
+use windows_sys::Win32::System::Services::{
+    CloseServiceHandle, OpenSCManagerW, OpenServiceW, QueryServiceStatusEx, SC_MANAGER_CONNECT,
+    SC_STATUS_PROCESS_INFO, SERVICE_QUERY_STATUS, SERVICE_RUNNING, SERVICE_STATUS_PROCESS,
+};
 
 const SERVICE_NAME: &str = "zapret";
+
+fn wide(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// Current state of a service, read through the Service Control Manager.
+/// `None` means the service does not exist (or cannot be queried).
+///
+/// The UI polls this every few seconds, so it must not spawn `sc.exe`: during
+/// Windows shutdown a spawned console tool fails to start with `0xc0000142` and
+/// Windows shows a "taskkill.exe/sc.exe — Ошибка приложения" dialog.
+fn service_state(name: &str) -> Option<u32> {
+    let name = wide(name);
+    unsafe {
+        let manager = OpenSCManagerW(std::ptr::null(), std::ptr::null(), SC_MANAGER_CONNECT);
+        if manager.is_null() {
+            return None;
+        }
+        let service = OpenServiceW(manager, name.as_ptr(), SERVICE_QUERY_STATUS);
+        CloseServiceHandle(manager);
+        if service.is_null() {
+            return None;
+        }
+        let mut status: SERVICE_STATUS_PROCESS = std::mem::zeroed();
+        let mut needed = 0u32;
+        let queried = QueryServiceStatusEx(
+            service,
+            SC_STATUS_PROCESS_INFO,
+            &mut status as *mut _ as *mut u8,
+            std::mem::size_of::<SERVICE_STATUS_PROCESS>() as u32,
+            &mut needed,
+        );
+        CloseServiceHandle(service);
+        (queried != 0).then_some(status.dwCurrentState)
+    }
+}
+
+fn image_of(entry: &PROCESSENTRY32W) -> String {
+    let name: Vec<u16> = entry
+        .szExeFile
+        .iter()
+        .take_while(|unit| **unit != 0)
+        .copied()
+        .collect();
+    String::from_utf16_lossy(&name)
+}
+
+/// Whether a process with this image name is running, read from a Toolhelp
+/// snapshot instead of spawning `tasklist.exe` (same shutdown reasoning as
+/// [`service_state`]).
+fn image_running(image: &str) -> bool {
+    unsafe {
+        let snapshot: HANDLE = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snapshot == INVALID_HANDLE_VALUE || snapshot.is_null() {
+            return false;
+        }
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut found = false;
+        let mut next = Process32FirstW(snapshot, &mut entry);
+        while next != 0 {
+            if image_of(&entry).eq_ignore_ascii_case(image) {
+                found = true;
+                break;
+            }
+            next = Process32NextW(snapshot, &mut entry);
+        }
+        CloseHandle(snapshot);
+        found
+    }
+}
 
 /// Manages the DPI bypass as the Windows service `zapret` — the same principle as
 /// service.bat "Install Service" / "Remove Services".
@@ -122,27 +201,17 @@ impl Engine {
     }
 
     /// Whether the `zapret` service exists (running or stopped).
+    ///
+    /// Answered through the Service Control Manager instead of spawning
+    /// `sc.exe`: the UI polls this every few seconds, and during Windows
+    /// shutdown a spawned tool fails with `0xc0000142`.
     pub fn is_installed() -> bool {
-        let out = Self::quiet(sys::command("sc.exe"))
-            .args(["query", SERVICE_NAME])
-            .stdout(Stdio::piped())
-            .output();
-        matches!(out, Ok(output) if output.status.success())
+        service_state(SERVICE_NAME).is_some()
     }
 
     /// Whether the `zapret` service is installed and running.
     pub fn is_running() -> bool {
-        let out = Self::quiet(sys::command("sc.exe"))
-            .args(["query", SERVICE_NAME])
-            .stdout(Stdio::piped())
-            .output();
-        match out {
-            Ok(output) => {
-                output.status.success()
-                    && String::from_utf8_lossy(&output.stdout).contains("RUNNING")
-            }
-            Err(_) => false,
-        }
+        service_state(SERVICE_NAME) == Some(SERVICE_RUNNING)
     }
 
     /// Kill any winws.exe process by image name (fallback for orphaned processes).
@@ -166,9 +235,12 @@ impl Engine {
         if let Some(dir) = std::path::Path::new(exe).parent() {
             cmd.current_dir(dir);
         }
-        cmd.spawn()
-            .map(|_| ())
-            .map_err(|e| format!("Не удалось запустить winws.exe: {e}"))
+        let child = cmd
+            .spawn()
+            .map_err(|e| format!("Не удалось запустить winws.exe: {e}"))?;
+        // Dies with the app even if it is terminated during shutdown.
+        crate::job::adopt(&child);
+        Ok(())
     }
 
     /// Wait until any winws.exe process appears, or the timeout elapses.
@@ -183,18 +255,33 @@ impl Engine {
         false
     }
 
-    /// Whether any winws.exe process is running (tasklist fallback).
+    /// Whether any winws.exe process is running (snapshot fallback: the bench
+    /// spawns transient processes that are not a service).
     pub fn is_any_winws_running() -> bool {
-        let out = Self::quiet(sys::command("tasklist.exe"))
-            .args(["/FI", "IMAGENAME eq winws.exe", "/FO", "CSV", "/NH"])
-            .stdout(Stdio::piped())
-            .output();
-        match out {
-            Ok(output) => {
-                let text = String::from_utf8_lossy(&output.stdout);
-                text.to_lowercase().contains("winws.exe")
-            }
-            Err(_) => false,
-        }
+        image_running("winws.exe")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn service_state_comes_from_the_scm() {
+        // `EventLog` ships with Windows and is always running.
+        assert_eq!(service_state("EventLog"), Some(SERVICE_RUNNING));
+        assert_eq!(service_state("zapret-ui-nonexistent-service"), None);
+    }
+
+    #[test]
+    fn image_scan_finds_a_running_process() {
+        let own = std::env::current_exe()
+            .expect("current exe")
+            .file_name()
+            .expect("file name")
+            .to_string_lossy()
+            .to_string();
+        assert!(image_running(&own), "own image {own} must be visible");
+        assert!(!image_running("zapret-ui-nonexistent-image.exe"));
     }
 }

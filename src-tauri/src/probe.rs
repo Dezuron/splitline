@@ -244,7 +244,7 @@ fn run_mode(url: &str, mode: Mode, timeout: Duration) -> (Status, u64, String) {
         .arg("-w")
         .arg("%{http_code}")
         .arg("-A")
-        .arg("zapret-ui/1.0")
+        .arg("Splitline/1.0")
         .args(mode.args())
         .arg(url)
         .stdin(Stdio::null())
