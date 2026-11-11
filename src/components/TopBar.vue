@@ -31,7 +31,9 @@ function closeWindow() {
 <template>
   <header class="topbar">
     <div class="topbar-title" data-tauri-drag-region @dblclick="toggleMaximize">
-      <h1 data-tauri-drag-region>{{ title }}</h1>
+      <Transition name="title" mode="out-in">
+        <h1 :key="title" data-tauri-drag-region>{{ title }}</h1>
+      </Transition>
     </div>
 
     <div class="topbar-actions">

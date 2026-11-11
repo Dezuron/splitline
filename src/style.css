@@ -1479,7 +1479,9 @@ body {
   border-right: 1px solid var(--glass-border);
   background: var(--sidebar-bg);
   backdrop-filter: blur(26px) saturate(145%);
-  transition: width var(--motion);
+  transition:
+    width 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 240ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .sidebar.collapsed {
@@ -2451,13 +2453,14 @@ body {
   gap: 12px;
 }
 
+/* The 1.1.0 rule used to zero the padding and strip the frame to a bottom
+   border, which left "ПРОВЕРКА" and the buttons flush against the card edge.
+   The 1.4.0 card (border, radius, surface, 10px 12px) now owns the look. */
 .toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
   align-items: end;
   gap: 20px;
-  padding: 0 0 12px;
-  border-bottom: 1px solid var(--border);
 }
 
 .tool-group {
@@ -2714,6 +2717,42 @@ body {
   border-radius: 999px;
 }
 
+/* The satellite accent is already luminous, so a light gradient plus a wide cyan
+   halo reads as glare. Keep the cyan identity, drop the bloom. */
+[data-theme="satellite"] .btn.primary {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--accent) 74%, #07222d),
+    color-mix(in oklab, var(--accent) 92%, #07222d)
+  );
+  border-color: color-mix(in oklab, var(--accent) 38%, transparent);
+  color: var(--primary-foreground);
+  text-shadow: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 2px 0 rgba(0, 0, 0, 0.2),
+    0 4px 10px rgba(87, 215, 255, 0.1);
+}
+
+[data-theme="satellite"] .btn.primary:hover:not(:disabled) {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--accent) 86%, #07222d),
+    var(--accent)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 3px 0 rgba(0, 0, 0, 0.16),
+    0 6px 14px rgba(87, 215, 255, 0.14);
+}
+
+[data-theme="satellite"] .btn.primary:active:not(:disabled) {
+  background: color-mix(in oklab, var(--accent) 84%, #07222d);
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.22),
+    0 1px 0 rgba(0, 0, 0, 0.2);
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-theme="satellite"] .topbar::after,
   [data-theme="satellite"] .sidebar-brand::after {
@@ -2723,4 +2762,437 @@ body {
 
 [data-theme="carmine"] .app-shell {
   background: var(--app-bg);
+}
+
+/* ---------- Motion: page transitions ---------- */
+/* Out-in keeps a single page in flow, so pages that rely on `height: 100%`
+   (Zapret, Settings) do not jump while the neighbour is mounted. */
+.page-enter-active {
+  transition:
+    opacity 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.page-leave-active {
+  transition:
+    opacity 110ms ease,
+    transform 110ms ease;
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+/* Top-level cards follow their page in, a beat apart. The stagger is kept
+   shorter than the page fade so nothing snaps back when the class is removed. */
+.page-enter-active > * {
+  animation: page-item-in 200ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.page-enter-active > *:nth-child(2) {
+  animation-delay: 25ms;
+}
+
+.page-enter-active > *:nth-child(3) {
+  animation-delay: 50ms;
+}
+
+.page-enter-active > *:nth-child(4) {
+  animation-delay: 75ms;
+}
+
+.page-enter-active > *:nth-child(n + 5) {
+  animation-delay: 100ms;
+}
+
+@keyframes page-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.title-enter-active {
+  transition:
+    opacity 160ms ease,
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.title-leave-active {
+  transition:
+    opacity 90ms ease,
+    transform 90ms ease;
+}
+
+.title-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.title-leave-to {
+  opacity: 0;
+  transform: translateY(-3px);
+}
+
+/* ---------- Motion: sidebar icons ---------- */
+.nav-item {
+  position: relative;
+}
+
+.nav-item::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 2px;
+  height: 18px;
+  margin-top: -9px;
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--accent) 55%, transparent);
+  opacity: 0;
+  transform: scaleY(0.35);
+  transition:
+    opacity 160ms ease,
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+
+.nav-item:hover::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+/* The active item already carries its own accent, so it needs no extra marker. */
+.nav-item.active::before {
+  opacity: 0;
+}
+
+.nav-item svg {
+  flex: 0 0 auto;
+  transform-origin: center;
+  transition:
+    transform 280ms cubic-bezier(0.34, 1.45, 0.64, 1),
+    color var(--motion),
+    filter 280ms ease;
+}
+
+.nav-item:hover svg,
+.nav-item:focus-visible svg {
+  color: var(--accent-text);
+  filter: drop-shadow(0 0 6px color-mix(in oklab, var(--accent) 55%, transparent));
+}
+
+/* Each tab bends the icon in its own direction. */
+.nav-item[data-icon="dashboard"]:hover svg,
+.nav-item[data-icon="dashboard"]:focus-visible svg {
+  animation: nav-icon-breathe 1.8s ease-in-out infinite;
+}
+
+.nav-item[data-icon="zapret"]:hover svg,
+.nav-item[data-icon="zapret"]:focus-visible svg {
+  transform: scale(1.14) rotate(-10deg);
+}
+
+.nav-item[data-icon="telegram"]:hover svg,
+.nav-item[data-icon="telegram"]:focus-visible svg {
+  transform: translate(2px, -2px) scale(1.14) rotate(-14deg);
+}
+
+.nav-item[data-icon="settings"]:hover svg,
+.nav-item[data-icon="settings"]:focus-visible svg {
+  transform: rotate(90deg) scale(1.1);
+  transition-duration: 480ms;
+}
+
+@keyframes nav-icon-breathe {
+  0%,
+  100% {
+    transform: scale(1.1);
+  }
+
+  50% {
+    transform: scale(1.17) translateY(-1px);
+  }
+}
+
+/* ---------- Hover glow ---------- */
+/* The dashboard's ZAPRET/TELEGRAM icons carry a coloured halo; every control
+   gets the same treatment on hover. The halo lives on ::after so it never
+   fights the existing box-shadow stacks. */
+:is(
+  .btn,
+  .ui-button,
+  .icon-btn,
+  .window-control,
+  .update-pill,
+  .update-orbit,
+  .collapse-btn,
+  .nav-item,
+  .theme-option,
+  .strategy-row,
+  .tgws-update-link,
+  [data-slot="switch"]
+) {
+  position: relative;
+}
+
+:is(
+  .btn,
+  .ui-button,
+  .icon-btn,
+  .window-control,
+  .update-pill,
+  .update-orbit,
+  .collapse-btn,
+  .nav-item,
+  .theme-option,
+  .strategy-row,
+  .tgws-update-link,
+  [data-slot="switch"]
+)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--accent) 30%, transparent),
+    0 0 16px 2px color-mix(in oklab, var(--accent) 34%, transparent);
+  transition: opacity 200ms ease;
+}
+
+:is(
+    .btn,
+    .ui-button,
+    .icon-btn,
+    .window-control,
+    .update-pill,
+    .update-orbit,
+    .collapse-btn,
+    .nav-item,
+    .theme-option,
+    .strategy-row,
+    .tgws-update-link,
+    [data-slot="switch"]
+  ):hover:not(:disabled)::after,
+:is(
+    .btn,
+    .ui-button,
+    .icon-btn,
+    .window-control,
+    .update-pill,
+    .update-orbit,
+    .collapse-btn,
+    .nav-item,
+    .theme-option,
+    .strategy-row,
+    .tgws-update-link,
+    [data-slot="switch"]
+  ):focus-visible::after {
+  opacity: 1;
+}
+
+/* The close control keeps its red identity instead of turning accent-coloured. */
+.window-control.close::after {
+  box-shadow:
+    0 0 0 1px rgba(217, 54, 62, 0.35),
+    0 0 16px 2px rgba(217, 54, 62, 0.4);
+}
+
+/* A native <select> is a replaced element: it never renders ::after, so the
+   same halo comes from a filter plus an accent border. */
+.select {
+  transition:
+    filter 200ms ease,
+    border-color var(--motion),
+    background var(--motion);
+}
+
+.select:hover:not(:disabled),
+.select:focus-visible {
+  border-color: color-mix(in oklab, var(--accent) 45%, transparent);
+  filter: drop-shadow(0 0 8px color-mix(in oklab, var(--accent) 45%, transparent));
+}
+
+/* ---------- Slider and progress ---------- */
+/* Native range styling ignores the theme accent and reads as a grey system
+   control; draw the track and thumb from tokens instead. */
+.budget {
+  width: 110px;
+  height: 18px;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.budget::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--text-3) 32%, transparent);
+}
+
+.budget::-webkit-slider-thumb {
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin-top: -4.5px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 22%, transparent);
+  transition: box-shadow 180ms ease;
+}
+
+.budget:hover::-webkit-slider-thumb,
+.budget:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 24%, transparent);
+}
+
+.budget:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* Native checkboxes render as light OS widgets in both themes; draw it from
+   the tokens like every other control. */
+.check-line input[type="checkbox"] {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--surface-2) 80%, transparent);
+  cursor: pointer;
+  transition:
+    background var(--motion),
+    border-color var(--motion),
+    box-shadow var(--motion);
+}
+
+.check-line input[type="checkbox"]::after {
+  content: "";
+  width: 8px;
+  height: 4px;
+  margin-top: -1px;
+  border-left: 1.8px solid var(--primary-foreground);
+  border-bottom: 1.8px solid var(--primary-foreground);
+  transform: rotate(-45deg) scale(0);
+  transition: transform 160ms cubic-bezier(0.34, 1.45, 0.64, 1);
+}
+
+.check-line input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.check-line input[type="checkbox"]:checked::after {
+  transform: rotate(-45deg) scale(1);
+}
+
+.check-line input[type="checkbox"]:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--accent) 55%, transparent);
+}
+
+.check-line input[type="checkbox"]:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* The old fill ran accent -> danger, so every run looked like a failure. */
+.progress-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--text-3) 26%, transparent);
+  overflow: hidden;
+}
+
+.progress-bar > div {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--accent) 55%, transparent),
+    var(--accent)
+  );
+  box-shadow: 0 0 10px color-mix(in oklab, var(--accent) 40%, transparent);
+  transition: width 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.brand-icon {
+  transition: transform 320ms cubic-bezier(0.34, 1.45, 0.64, 1);
+}
+
+.sidebar-brand:hover .brand-icon {
+  transform: rotate(-5deg) scale(1.06);
+}
+
+.collapse-btn svg {
+  transition: transform 240ms cubic-bezier(0.34, 1.45, 0.64, 1);
+}
+
+.collapse-btn:hover svg {
+  transform: scale(1.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter-active,
+  .page-leave-active,
+  .title-enter-active,
+  .title-leave-active {
+    transition-duration: 1ms;
+  }
+
+  .page-enter-active > *,
+  .nav-item[data-icon="dashboard"]:hover svg,
+  .nav-item[data-icon="dashboard"]:focus-visible svg {
+    animation: none;
+  }
+
+  .sidebar,
+  .nav-item svg,
+  .nav-item:hover svg,
+  .nav-item:focus-visible svg,
+  .nav-item[data-icon="zapret"]:hover svg,
+  .nav-item[data-icon="zapret"]:focus-visible svg,
+  .nav-item[data-icon="telegram"]:hover svg,
+  .nav-item[data-icon="telegram"]:focus-visible svg,
+  .nav-item[data-icon="settings"]:hover svg,
+  .nav-item[data-icon="settings"]:focus-visible svg,
+  .brand-icon,
+  .sidebar-brand:hover .brand-icon,
+  .collapse-btn svg,
+  .collapse-btn:hover svg {
+    transform: none;
+    transition: none;
+  }
+
+  :is(
+    .btn,
+    .ui-button,
+    .icon-btn,
+    .window-control,
+    .update-pill,
+    .update-orbit,
+    .collapse-btn,
+    .nav-item,
+    .theme-option,
+    .strategy-row,
+    .tgws-update-link,
+    [data-slot="switch"]
+  )::after,
+  .budget::-webkit-slider-thumb,
+  .progress-bar > div,
+  .select {
+    transition: none;
+  }
 }
