@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { AppStatus } from "../types";
 import {
+  activeRow,
+  generatedRows,
   officialRows,
   runtimeReady,
   showSetupWizard,
@@ -23,6 +25,14 @@ function makeStatus(overrides: Partial<AppStatus> = {}): AppStatus {
     runtime_valid: false,
     ...overrides,
   };
+}
+
+function strategy(name: string, active = false) {
+  return { name, file_name: `${name}.bat`, active, args_preview: name };
+}
+
+function generated(name: string, parent: string, active = false) {
+  return { name, parent, score: 50, active, args_preview: name };
 }
 
 describe("store state", () => {
@@ -100,9 +110,56 @@ describe("store state", () => {
     status.value = makeStatus({
       strategies: [
         { name: "alpha", file_name: "alpha.bat", active: false, args_preview: "a" },
-        { name: "beta", file_name: "beta.bat", active: true, args_preview: "b" },
+        { name: "beta", file_name: "beta.bat", active: false, args_preview: "b" },
       ],
     });
     expect(officialRows.value.map((row) => row.name)).toEqual(["alpha", "beta"]);
+  });
+
+  it("takes the active strategy out of the sorted official list", () => {
+    status.value = makeStatus({
+      strategies: [strategy("alpha"), strategy("beta", true), strategy("gamma")],
+      current_strategy: "beta",
+    });
+    expect(officialRows.value.map((row) => row.name)).toEqual(["alpha", "gamma"]);
+  });
+
+  it("keeps the plain order when no strategy is active", () => {
+    status.value = makeStatus({ strategies: [strategy("beta"), strategy("alpha")] });
+    expect(officialRows.value.map((row) => row.name)).toEqual(["alpha", "beta"]);
+  });
+
+  it("takes an active experimental strategy out of its group", () => {
+    status.value = makeStatus({
+      generated: [generated("exp-1", "alpha", true), generated("exp-2", "alpha")],
+      current_strategy: "exp-1",
+    });
+    expect(generatedRows.value.map((row) => row.name)).toEqual(["exp-2"]);
+  });
+
+  it("exposes the active strategy as a pinned row", () => {
+    status.value = makeStatus({
+      strategies: [strategy("alpha"), strategy("beta", true)],
+      current_strategy: "beta",
+    });
+    expect(activeRow.value?.name).toBe("beta");
+    expect(activeRow.value?.generated).toBe(false);
+  });
+
+  it("pins an active experimental strategy with its parent", () => {
+    status.value = makeStatus({
+      generated: [generated("exp-1", "alpha", true)],
+      current_strategy: "exp-1",
+    });
+    expect(activeRow.value).toMatchObject({
+      name: "exp-1",
+      generated: true,
+      parent: "alpha",
+    });
+  });
+
+  it("has no pinned row while nothing is applied", () => {
+    status.value = makeStatus({ strategies: [strategy("alpha")] });
+    expect(activeRow.value).toBeNull();
   });
 });

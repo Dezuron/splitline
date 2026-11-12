@@ -3,6 +3,7 @@ import Panel from "./Panel.vue";
 import StrategyRow from "./StrategyRow.vue";
 import { hostStatusLabel } from "../lib/labels";
 import {
+  activeRow,
   applyStrategy,
   benchBusy,
   benchDate,
@@ -147,7 +148,24 @@ import {
       <span class="legend">D — Discord · Y — YouTube · C — контрольные</span>
     </div>
 
-    <div v-if="officialRows.length || generatedRows.length" class="strategy-list">
+    <TransitionGroup
+      v-if="activeRow || officialRows.length || generatedRows.length"
+      name="strategy"
+      tag="div"
+      class="strategy-list"
+    >
+      <StrategyRow
+        v-if="activeRow"
+        :key="activeRow.name"
+        :row="activeRow"
+        :selected="selected === activeRow.name"
+        :best="activeRow.name === benchSummary?.best"
+        :disabled="busy || benchRunning"
+        @select="selectStrategy(activeRow.name)"
+        @apply="applyStrategy(activeRow.name)"
+        @delete="deleteGenerated(activeRow.name)"
+      />
+
       <StrategyRow
         v-for="row in officialRows"
         :key="row.name"
@@ -159,32 +177,30 @@ import {
         @apply="applyStrategy(row.name)"
       />
 
-      <template v-if="generatedRows.length">
-        <div class="list-subhead">
-          <span>Экспериментальные</span>
-          <span class="list-subhead-line" aria-hidden="true"></span>
-          <button
-            class="btn small"
-            :disabled="busy || benchRunning"
-            title="Удалить все экспериментальные стратегии, кроме активной"
-            @click="deleteAllGenerated"
-          >
-            Удалить все
-          </button>
-        </div>
-        <StrategyRow
-          v-for="row in generatedRows"
-          :key="row.name"
-          :row="row"
-          :selected="selected === row.name"
-          :best="row.name === benchSummary?.best"
+      <div v-if="generatedRows.length" key="__group-experimental__" class="list-subhead">
+        <span>Экспериментальные</span>
+        <span class="list-subhead-line" aria-hidden="true"></span>
+        <button
+          class="btn small"
           :disabled="busy || benchRunning"
-          @select="selectStrategy(row.name)"
-          @apply="applyStrategy(row.name)"
-          @delete="deleteGenerated(row.name)"
-        />
-      </template>
-    </div>
+          title="Удалить все экспериментальные стратегии, кроме активной"
+          @click="deleteAllGenerated"
+        >
+          Удалить все
+        </button>
+      </div>
+      <StrategyRow
+        v-for="row in generatedRows"
+        :key="row.name"
+        :row="row"
+        :selected="selected === row.name"
+        :best="row.name === benchSummary?.best"
+        :disabled="busy || benchRunning"
+        @select="selectStrategy(row.name)"
+        @apply="applyStrategy(row.name)"
+        @delete="deleteGenerated(row.name)"
+      />
+    </TransitionGroup>
     <div v-else class="empty-state">
       <p v-if="!runtimeReady">Сначала установите flowseal-zapret — тогда появятся стратегии.</p>
       <p v-else>Стратегии не найдены. Обновите flowseal-zapret.</p>
