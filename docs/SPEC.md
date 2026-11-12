@@ -450,7 +450,8 @@ cd ..
 - **ОС:** Windows 11 x64, локаль RU.
 - **Node.js:** 20.x (Vite, TypeScript, Tauri CLI).
 - **Rust:** stable-x86_64-pc-windows-msvc, MSVC Build Tools 2022.
-- **WebView2 Runtime:** входит в Windows 11, отдельно не бандлится.
+- **WebView2 Runtime:** входит в Windows 11; на Windows 10 приложение проверяет его
+  наличие при старте и предлагает установить. Отдельно не бандлится.
 - **Оригинальный zapret:** эталонная распаковка релиза zapret-discord-youtube;
   для тестов используется `%LOCALAPPDATA%\zapret-ui\runtime`.
 - **Референс:** [Flowseal/tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) —

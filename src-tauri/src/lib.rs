@@ -25,6 +25,7 @@ pub use error::{AppError, AppResult};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
+use windows_sys::Win32::System::Registry::HKEY;
 
 /// Locks a mutex even if another thread panicked while holding it. A poisoned
 /// config mutex must not turn every later command into a panic: the value is
@@ -88,7 +89,6 @@ fn ensure_elevated() {
         use windows_sys::Win32::UI::Shell::{
             ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
         };
-        use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
 
         if is_admin() {
             return;
@@ -126,24 +126,9 @@ fn ensure_elevated() {
         let ok = unsafe { ShellExecuteExW(&mut info) };
         if ok == 0 {
             let err = std::io::Error::last_os_error();
-            let msg: Vec<u16> = format!(
+            error_box(&format!(
                 "Не удалось запустить Splitline с правами администратора.\n\nОшибка: {err}\n\nЗапустите приложение через «Запуск от имени администратора»."
-            )
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-            let title: Vec<u16> = "Splitline"
-                .encode_utf16()
-                .chain(std::iter::once(0))
-                .collect();
-            unsafe {
-                MessageBoxW(
-                    std::ptr::null_mut(),
-                    msg.as_ptr(),
-                    title.as_ptr(),
-                    MB_OK | MB_ICONERROR,
-                );
-            }
+            ));
         }
         std::process::exit(0);
     }
@@ -167,6 +152,9 @@ pub fn apply_titlebar_theme(window: &tauri::WebviewWindow, dark: bool) {
     let enabled: i32 = if dark { 1 } else { 0 };
     let caption: u32 = if dark { 0x000d0909 } else { 0x00f4f0ee };
     let caption_text: u32 = if dark { 0x00f6f3f2 } else { 0x00221917 };
+    // Caption colours (attributes 35/36) exist only on Windows 11. On Windows 10
+    // DwmSetWindowAttribute rejects them with E_INVALIDARG.
+    let win11 = os_build_number().is_some_and(|build| build >= WIN11_BUILD);
     unsafe {
         DwmSetWindowAttribute(
             hwnd.0,
@@ -174,20 +162,22 @@ pub fn apply_titlebar_theme(window: &tauri::WebviewWindow, dark: bool) {
             &enabled as *const _ as *const core::ffi::c_void,
             std::mem::size_of::<i32>() as u32,
         );
-        // Windows 11: also paint the native caption explicitly, otherwise a
-        // system dark theme can keep a dark title bar over a light app.
-        DwmSetWindowAttribute(
-            hwnd.0,
-            35_u32,
-            &caption as *const _ as *const core::ffi::c_void,
-            std::mem::size_of::<u32>() as u32,
-        );
-        DwmSetWindowAttribute(
-            hwnd.0,
-            36_u32,
-            &caption_text as *const _ as *const core::ffi::c_void,
-            std::mem::size_of::<u32>() as u32,
-        );
+        if win11 {
+            // Paint the native caption explicitly, otherwise a system dark theme
+            // can keep a dark title bar over a light app.
+            DwmSetWindowAttribute(
+                hwnd.0,
+                35_u32,
+                &caption as *const _ as *const core::ffi::c_void,
+                std::mem::size_of::<u32>() as u32,
+            );
+            DwmSetWindowAttribute(
+                hwnd.0,
+                36_u32,
+                &caption_text as *const _ as *const core::ffi::c_void,
+                std::mem::size_of::<u32>() as u32,
+            );
+        }
     }
 }
 
@@ -220,11 +210,108 @@ fn wait_for_process_exit(pid: u32) {
     }
 }
 
-/// The application targets Windows 11 only. `GetVersionExW` lies without the
-/// right manifest compatibility section, so ask ntdll directly.
-fn ensure_windows_11() {
-    use windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW;
+/// Shows a blocking error dialog. Runs before the Tauri runtime exists, so the
+/// text must not rely on the webview.
+fn error_box(message: &str) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+
+    let message = wide(message);
+    let title = wide("Splitline");
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            message.as_ptr(),
+            title.as_ptr(),
+            MB_OK | MB_ICONERROR,
+        );
+    }
+}
+
+/// NUL-terminated UTF-16 copy of `text`, as the Win32 `*W` APIs expect.
+fn wide(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// Reads a `REG_DWORD` value. `None` when the key or the value is missing.
+fn read_reg_dword(root: HKEY, subkey: &str, name: &str) -> Option<u32> {
+    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, KEY_READ, REG_DWORD,
+    };
+
+    let subkey = wide(subkey);
+    let name = wide(name);
+    let mut key: HKEY = std::ptr::null_mut();
+    if unsafe { RegOpenKeyExW(root, subkey.as_ptr(), 0, KEY_READ, &mut key) } != ERROR_SUCCESS {
+        return None;
+    }
+
+    let mut data: u32 = 0;
+    let mut kind = 0u32;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    let status = unsafe {
+        RegQueryValueExW(
+            key,
+            name.as_ptr(),
+            std::ptr::null(),
+            &mut kind,
+            (&mut data as *mut u32).cast::<u8>(),
+            &mut size,
+        )
+    };
+    unsafe { RegCloseKey(key) };
+    if status != ERROR_SUCCESS || kind != REG_DWORD || size != 4 {
+        return None;
+    }
+    Some(data)
+}
+
+/// Reads a non-empty `REG_SZ` value. `None` when the key or the value is missing.
+fn read_reg_string(root: HKEY, subkey: &str, name: &str) -> Option<String> {
+    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, KEY_READ, REG_SZ,
+    };
+
+    let subkey = wide(subkey);
+    let name = wide(name);
+    let mut key: HKEY = std::ptr::null_mut();
+    if unsafe { RegOpenKeyExW(root, subkey.as_ptr(), 0, KEY_READ, &mut key) } != ERROR_SUCCESS {
+        return None;
+    }
+
+    let mut buffer = [0u16; 128];
+    let mut kind = 0u32;
+    let mut size = (buffer.len() * std::mem::size_of::<u16>()) as u32;
+    let status = unsafe {
+        RegQueryValueExW(
+            key,
+            name.as_ptr(),
+            std::ptr::null(),
+            &mut kind,
+            buffer.as_mut_ptr().cast::<u8>(),
+            &mut size,
+        )
+    };
+    unsafe { RegCloseKey(key) };
+    if status != ERROR_SUCCESS || kind != REG_SZ {
+        return None;
+    }
+
+    let len = (size as usize / std::mem::size_of::<u16>()).min(buffer.len());
+    let text = String::from_utf16_lossy(&buffer[..len]);
+    let text = text.trim_end_matches('\0').trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
+}
+
+/// Windows build number from ntdll: `GetVersionExW` lies without the right
+/// manifest compatibility section.
+fn os_build_number() -> Option<u32> {
+    use windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW;
 
     #[link(name = "ntdll")]
     extern "system" {
@@ -234,28 +321,141 @@ fn ensure_windows_11() {
     let mut info: OSVERSIONINFOW = unsafe { std::mem::zeroed() };
     info.dwOSVersionInfoSize = std::mem::size_of::<OSVERSIONINFOW>() as u32;
     let status = unsafe { RtlGetVersion(&mut info) };
-    if status != 0 || info.dwBuildNumber >= 22000 {
+    if status != 0 {
+        return None;
+    }
+    Some(info.dwBuildNumber)
+}
+
+/// Lowest Windows 10 release the app supports: 22H2 with the cumulative update
+/// that raised the build revision to 19045.6456.
+const WIN10_MIN_BUILD: u32 = 19045;
+const WIN10_MIN_UBR: u32 = 6456;
+/// Windows 11 keeps its original threshold.
+const WIN11_BUILD: u32 = 22000;
+
+/// Windows 11 (22000+) stays supported, Windows 10 is supported from 22H2
+/// build 19045.6456 onward. Anything above that build passes too.
+fn is_os_supported(build: u32, ubr: u32) -> bool {
+    build >= WIN11_BUILD
+        || build > WIN10_MIN_BUILD
+        || (build == WIN10_MIN_BUILD && ubr >= WIN10_MIN_UBR)
+}
+
+#[cfg(test)]
+mod os_tests {
+    use super::{is_os_supported, os_build_number, read_reg_string};
+
+    #[test]
+    fn windows_10_22h2_requires_the_minimum_update_revision() {
+        assert!(is_os_supported(19045, 6456));
+        assert!(is_os_supported(19045, 7000));
+        assert!(!is_os_supported(19045, 6455));
+        assert!(!is_os_supported(19045, 5965));
+    }
+
+    #[test]
+    fn windows_11_is_supported_regardless_of_revision() {
+        assert!(is_os_supported(22000, 0));
+        assert!(is_os_supported(26100, 1));
+    }
+
+    #[test]
+    fn older_windows_versions_are_rejected() {
+        assert!(!is_os_supported(19044, 6456));
+        assert!(!is_os_supported(17763, 9999));
+        assert!(!is_os_supported(9600, 0));
+    }
+
+    #[test]
+    fn build_number_comes_from_ntdll() {
+        let build = os_build_number().expect("RtlGetVersion must succeed");
+        assert!(build >= 10240, "unexpected build number {build}");
+    }
+
+    #[test]
+    fn registry_probe_reads_real_values() {
+        use windows_sys::Win32::System::Registry::HKEY_LOCAL_MACHINE;
+
+        let product = read_reg_string(
+            HKEY_LOCAL_MACHINE,
+            "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
+            "ProductName",
+        )
+        .expect("ProductName must be readable");
+        assert!(product.starts_with("Windows"), "unexpected {product}");
+    }
+}
+
+/// Blocks startup on Windows versions the app does not support: everything
+/// below Windows 10 22H2 build 19045.6456.
+fn ensure_supported_os() {
+    use windows_sys::Win32::System::Registry::HKEY_LOCAL_MACHINE;
+
+    // An unreadable build number is not a reason to refuse to start.
+    let Some(build) = os_build_number() else {
+        return;
+    };
+    // `RtlGetVersion` reports no revision; the update build revision (the
+    // `6456` in `19045.6456`) lives in the registry.
+    let ubr = read_reg_dword(
+        HKEY_LOCAL_MACHINE,
+        "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
+        "UBR",
+    )
+    .unwrap_or(0);
+    if is_os_supported(build, ubr) {
         return;
     }
 
-    let message: Vec<u16> =
-        "Splitline поддерживается только на Windows 11 (build 22000 и новее).\n\nОбновите Windows."
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-    let title: Vec<u16> = "Splitline"
-        .encode_utf16()
-        .chain(std::iter::once(0))
-        .collect();
-    unsafe {
-        MessageBoxW(
-            std::ptr::null_mut(),
-            message.as_ptr(),
-            title.as_ptr(),
-            MB_OK | MB_ICONERROR,
-        );
-    }
+    error_box(&format!(
+        "Splitline поддерживается на Windows 10 22H2 (сборка 19045.6456 и новее) и Windows 11.\n\n\
+         Текущая сборка: {build}.{ubr}.\nОбновите Windows."
+    ));
     std::process::exit(1);
+}
+
+/// Evergreen WebView2 Runtime client id, shared by the machine-wide
+/// (`WOW6432Node`) and the per-user installations.
+const WEBVIEW2_CLIENT_ID: &str = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
+
+/// Windows 11 ships the WebView2 Runtime; on Windows 10 it comes with Microsoft
+/// Edge and may be missing on stripped-down systems. Without it Tauri cannot
+/// create a window, so the portable build would exit silently.
+fn ensure_webview2() {
+    if webview2_installed() {
+        return;
+    }
+
+    error_box(
+        "Не найден WebView2 Runtime, без него Splitline не может открыть окно.\n\n\
+         Установите WebView2 Runtime от Microsoft и запустите Splitline снова:\n\
+         https://go.microsoft.com/fwlink/p/?LinkId=2124703",
+    );
+    std::process::exit(1);
+}
+
+/// Looks for the Evergreen WebView2 Runtime registration: machine-wide (both
+/// registry views) or per-user. The `pv` value holds the installed version.
+fn webview2_installed() -> bool {
+    use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+
+    let keys = [
+        (
+            HKEY_LOCAL_MACHINE,
+            format!("SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{WEBVIEW2_CLIENT_ID}"),
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            format!("SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{WEBVIEW2_CLIENT_ID}"),
+        ),
+        (
+            HKEY_CURRENT_USER,
+            format!("SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{WEBVIEW2_CLIENT_ID}"),
+        ),
+    ];
+    keys.iter()
+        .any(|(root, subkey)| read_reg_string(*root, subkey, "pv").is_some())
 }
 
 /// Keeps the window reachable: if its rectangle does not intersect any monitor
@@ -311,7 +511,8 @@ pub fn run() {
         wait_for_process_exit(pid);
     }
     updater::cleanup_backup();
-    ensure_windows_11();
+    ensure_supported_os();
+    ensure_webview2();
     ensure_elevated();
     let is_autostart = std::env::args().any(|a| a == "--autostart");
 
