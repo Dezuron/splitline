@@ -126,20 +126,34 @@ export interface StrategyRowData {
   bench?: CandidateResult;
 }
 
-export const officialRows = computed<StrategyRowData[]>(() =>
-  sortRows(status.value?.strategies ?? []).map((strategy) => ({
+const officialAll = computed<StrategyRowData[]>(() =>
+  (status.value?.strategies ?? []).map((strategy) => ({
     ...strategy,
     generated: false,
     bench: benchByName.value.get(strategy.name),
   })),
 );
 
-export const generatedRows = computed<StrategyRowData[]>(() =>
-  sortRows(status.value?.generated ?? []).map((strategy) => ({
+const generatedAll = computed<StrategyRowData[]>(() =>
+  (status.value?.generated ?? []).map((strategy) => ({
     ...strategy,
     generated: true,
     bench: benchByName.value.get(strategy.name),
   })),
+);
+
+// The applied strategy, rendered as the first row of the list. It is kept out
+// of its own group so the list never shows it twice.
+export const activeRow = computed<StrategyRowData | null>(
+  () => [...officialAll.value, ...generatedAll.value].find((row) => row.active) ?? null,
+);
+
+export const officialRows = computed<StrategyRowData[]>(() =>
+  sortRows(officialAll.value.filter((row) => !row.active)),
+);
+
+export const generatedRows = computed<StrategyRowData[]>(() =>
+  sortRows(generatedAll.value.filter((row) => !row.active)),
 );
 
 export const benchDate = computed(() =>
