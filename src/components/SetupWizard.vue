@@ -30,9 +30,12 @@ const step = ref<1 | 2 | 3>(1);
           локально.
         </p>
         <ul class="setup-list">
-          <li>Windows 11 x64 (build 22000 или новее)</li>
+          <li>Windows 11 или Windows 10 22H2 (сборка 19045.6456 и новее)</li>
           <li>Права администратора при запуске — нужны для WinDivert</li>
-          <li>WebView2 в Windows 11 уже установлен</li>
+          <li>
+            WebView2 Runtime — в Windows 11 уже установлен, на Windows 10 приложение проверит его
+            наличие
+          </li>
         </ul>
         <div class="setup-actions">
           <button class="btn small" @click="dismissSetupWizard">Настроить позже</button>
