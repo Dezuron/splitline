@@ -1,7 +1,7 @@
 {
   "name": "splitline",
   "private": true,
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Windows 10/11 GUI manager for flowseal-zapret (zapret-discord-youtube by Flowseal)",
   "author": "Dezuron",
   "license": "MIT",
