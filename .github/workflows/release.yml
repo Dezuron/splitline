@@ -125,8 +125,6 @@ jobs:
           if (-not $built) { throw "Built exe was not found in src-tauri/target/release" }
 
           Copy-Item $built "$stage/Splitline.exe"
-          # Transition release: 1.2.x clients only look for `zapret-ui.exe`.
-          Copy-Item $built "$stage/zapret-ui.exe"
 
           # README/LICENSE/notices go into the portable zip, not into the release root.
           Compress-Archive -Path @(
