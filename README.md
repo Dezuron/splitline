@@ -5,7 +5,7 @@
     src="https://img.shields.io/github/v/release/Dezuron/splitline?style=flat-square&amp;color=303036&amp;label=version"
     alt="Версия"
   />
-  <img src="https://img.shields.io/badge/Windows-11%20x64-303036?style=flat-square" alt="Windows 11 x64" />
+  <img src="https://img.shields.io/badge/Windows-10%2F11%20x64-303036?style=flat-square" alt="Windows 10/11 x64" />
   <img src="https://img.shields.io/badge/language-RU-303036?style=flat-square" alt="Русский язык" />
   <img src="https://img.shields.io/badge/license-MIT-303036?style=flat-square" alt="MIT" />
   <img src="https://img.shields.io/badge/telemetry-none-2ea043?style=flat-square" alt="Без телеметрии" />
@@ -17,9 +17,9 @@
 
 Портабельный exe **~12 МБ**, потребление RAM **~40–60 МБ** (WebView2 шарится с Edge).
 
-> **Требования:** Windows 11 x64 (build 22000 или новее), WebView2 Runtime (в Windows 11 уже установлен),
-> права администратора при запуске (нужен WinDivert). Приложение больше не поддерживает Windows 10,
-> Linux и macOS.
+> **Требования:** Windows 11 x64 или Windows 10 22H2 x64 (сборка 19045.6456 и новее),
+> WebView2 Runtime (в Windows 11 уже установлен), права администратора при запуске
+> (нужен WinDivert). Linux и macOS не поддерживаются.
 
 ## Возможности
 
@@ -170,8 +170,10 @@ npm run check:version
 
 ## Требования
 
-- **Windows 11 x64**, build 22000+ (приложение проверяет это при старте).
-- **WebView2 Runtime** — в Windows 11 уже установлен.
+- **Windows 11 x64** или **Windows 10 22H2 x64**, build 19045.6456+ (приложение проверяет
+  это при старте).
+- **WebView2 Runtime** — в Windows 11 уже установлен, на Windows 10 приложение проверяет
+  его наличие и предлагает установить.
 - **Права администратора** — нужны для WinDivert и службы `zapret`.
 - Доступ к GitHub для скачивания flowseal-zapret и проверки обновлений.
 
