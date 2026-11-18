@@ -1779,6 +1779,38 @@ fn related_hosts(domain: &str, html: &str) -> Vec<SiteCandidate> {
     hosts
 }
 
+/// Loads the site through the tunnel, retrying while the core comes back up.
+///
+/// Adding a site restarts the tunnel, and the first request can hit the inbound
+/// before it is listening. reqwest's own text for that is only "error sending
+/// request for url (...)"; the chain is unwrapped so the real reason is shown.
+fn fetch_page(client: &reqwest::blocking::Client, domain: &str) -> Result<String, String> {
+    let mut last_error = String::from("неизвестная ошибка");
+    for attempt in 1..=3 {
+        let result = client
+            .get(format!("https://{domain}/"))
+            .send()
+            .map_err(|e| describe_error(&e))
+            .and_then(|response| {
+                if response.status().is_success() {
+                    response.text().map_err(|e| describe_error(&e))
+                } else {
+                    Err(format!("сервер ответил {}", response.status()))
+                }
+            });
+        match result {
+            Ok(html) => return Ok(html),
+            Err(error) => {
+                last_error = error;
+                if attempt < 3 {
+                    std::thread::sleep(Duration::from_millis(700));
+                }
+            }
+        }
+    }
+    Err(format!("Не удалось загрузить {domain}: {last_error}"))
+}
+
 /// Suggests the extra domains a site needs, by loading its page through the
 /// tunnel and looking at what hosts it references.
 pub fn discover_sites(app: &AppHandle, site: &str) -> Result<Vec<SiteCandidate>, String> {
@@ -1799,11 +1831,7 @@ pub fn discover_sites(app: &AppHandle, site: &str) -> Result<Vec<SiteCandidate>,
         .timeout(Duration::from_secs(25))
         .build()
         .map_err(|e| e.to_string())?;
-    let html = client
-        .get(format!("https://{domain}/"))
-        .send()
-        .and_then(|response| response.text())
-        .map_err(|e| format!("Не удалось загрузить {domain}: {e}"))?;
+    let html = fetch_page(&client, &domain)?;
 
     let known: Vec<String> = load_cfg(app)
         .proxy_sites
