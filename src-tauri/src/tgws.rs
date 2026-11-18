@@ -877,6 +877,8 @@ fn start_locked(app: &AppHandle) -> Result<(), String> {
         s.port_conflict = false;
         s.client_connections_total = 0;
     });
+    // Remember the state so the next launch can restore it.
+    let _ = save_cfg(app, |cfg| cfg.session_running = true);
     spawn_watcher(app.clone(), pid);
     schedule_connect_hint(app.clone());
     Ok(())
@@ -945,6 +947,7 @@ fn spawn_watcher(app: AppHandle, pid: u32) {
 }
 
 fn stop_locked(app: &AppHandle) -> Result<(), String> {
+    let _ = save_cfg(app, |cfg| cfg.session_running = false);
     let taken = {
         let state = app.state::<AppState>();
         let mut guard = lock(&state.tgws.child);
@@ -1315,7 +1318,15 @@ pub fn dismiss_update(app: &AppHandle, tag: &str) -> Result<(), String> {
     save_cfg(app, |cfg| cfg.dismissed_update_tag = tag.to_string())
 }
 
-fn download(url: &str) -> Result<Vec<u8>, String> {
+fn download(app: &AppHandle, url: &str) -> Result<Vec<u8>, String> {
+    let result = download_inner(app, url);
+    if let Err(error) = &result {
+        crate::progress::fail(app, "tgws", "Обновление Telegram-прокси", error);
+    }
+    result
+}
+
+fn download_inner(app: &AppHandle, url: &str) -> Result<Vec<u8>, String> {
     if !url.starts_with("https://") {
         return Err("Некорректная ссылка на бинарник.".into());
     }
@@ -1326,26 +1337,42 @@ fn download(url: &str) -> Result<Vec<u8>, String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let response = client
+    let mut response = client
         .get(url)
         .send()
         .map_err(|e| format!("Не удалось скачать прокси: {e}"))?;
     if !response.status().is_success() {
         return Err(format!("Не удалось скачать прокси: {}", response.status()));
     }
-    if let Some(length) = response.content_length() {
-        if length > MAX_DOWNLOAD_BYTES {
-            return Err("Файл прокси подозрительно большой — загрузка отменена.".into());
-        }
+    let total = response.content_length().unwrap_or(0);
+    if total > MAX_DOWNLOAD_BYTES {
+        return Err("Файл прокси подозрительно большой — загрузка отменена.".into());
     }
 
     let mut bytes = Vec::new();
-    response
-        .take(MAX_DOWNLOAD_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|e| format!("Не удалось скачать прокси: {e}"))?;
-    if bytes.len() as u64 > MAX_DOWNLOAD_BYTES {
-        return Err("Файл прокси подозрительно большой — загрузка отменена.".into());
+    let mut buffer = [0u8; 64 * 1024];
+    let mut throttle = crate::progress::Throttle::new();
+    crate::progress::update(app, "tgws", "Обновление Telegram-прокси", 0, total);
+    loop {
+        let read = response
+            .read(&mut buffer)
+            .map_err(|e| format!("Не удалось скачать прокси: {e}"))?;
+        if read == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&buffer[..read]);
+        if bytes.len() as u64 > MAX_DOWNLOAD_BYTES {
+            return Err("Файл прокси подозрительно большой — загрузка отменена.".into());
+        }
+        if throttle.ready() {
+            crate::progress::update(
+                app,
+                "tgws",
+                "Обновление Telegram-прокси",
+                bytes.len() as u64,
+                total,
+            );
+        }
     }
     if (bytes.len() as u64) < MIN_DOWNLOAD_BYTES {
         return Err(format!(
@@ -1353,6 +1380,12 @@ fn download(url: &str) -> Result<Vec<u8>, String> {
             bytes.len()
         ));
     }
+    crate::progress::finish(
+        app,
+        "tgws",
+        "Обновление Telegram-прокси",
+        bytes.len() as u64,
+    );
     Ok(bytes)
 }
 
@@ -1509,7 +1542,7 @@ fn install_latest_inner(app: &AppHandle) -> Result<u64, String> {
 
     recover_binary(&config::tgws_dir());
     emit_progress(app, "Скачивание Telegram-прокси…");
-    let bytes = download(&asset.url)?;
+    let bytes = download(app, &asset.url)?;
     let actual = format!("{:x}", Sha256::digest(&bytes));
     if !actual.eq_ignore_ascii_case(expected.trim()) {
         return Err("Контрольная сумма бинарника не совпала — обновление отменено.".into());

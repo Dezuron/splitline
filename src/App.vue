@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import Sidebar from "./components/Sidebar.vue";
 import TopBar from "./components/TopBar.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
+import DownloadOverlay from "./components/DownloadOverlay.vue";
 import ToastHost from "./components/ToastHost.vue";
 import SetupWizard from "./components/SetupWizard.vue";
 import WhatsNewDialog from "./components/WhatsNewDialog.vue";
@@ -60,6 +61,7 @@ watch(
     <SetupWizard v-if="showSetupWizard" />
     <WhatsNewDialog v-if="showWhatsNew" />
     <ToastHost />
+    <DownloadOverlay />
     <ConfirmDialog />
   </div>
 </template>

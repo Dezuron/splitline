@@ -52,7 +52,10 @@ impl GameFilter {
 #[serde(default)]
 pub struct TgwsConfig {
     /// Start the proxy together with the application.
+    /// Kept for config compatibility; the session snapshot is what restores it.
     pub autostart: bool,
+    /// The proxy was running when the app last changed it.
+    pub session_running: bool,
     pub host: String,
     /// `0` is never valid: the app validates the range before saving.
     pub port: u16,
@@ -85,6 +88,7 @@ impl Default for TgwsConfig {
     fn default() -> Self {
         Self {
             autostart: true,
+            session_running: false,
             host: "127.0.0.1".into(),
             // 1443 is the tg-ws-proxy convention; keep ours out of its way.
             port: 1555,
@@ -121,7 +125,10 @@ pub struct XrayConfig {
     /// Local HTTP port for browsers.
     pub http_port: u16,
     /// Start the tunnel together with the application.
+    /// Kept for config compatibility; the session snapshot is what restores it.
     pub autostart: bool,
+    /// The tunnel was running when the app last changed it.
+    pub session_running: bool,
     /// Domains that must go through the tunnel. Everything else stays direct:
     /// the list is a whitelist, not a blacklist.
     pub proxy_sites: Vec<String>,
@@ -143,6 +150,7 @@ impl Default for XrayConfig {
             socks_port: 17808,
             http_port: 17809,
             autostart: false,
+            session_running: false,
             proxy_sites: Vec::new(),
             system_proxy: false,
             installed_version: String::new(),
@@ -156,6 +164,10 @@ impl Default for XrayConfig {
 pub struct AppConfig {
     pub last_strategy: String,
     pub autostart: bool,
+    /// The bypass was running when the app last changed it.
+    pub session_zapret: bool,
+    /// False until the session flags were seeded from the old autostart settings.
+    pub session_initialized: bool,
     pub check_updates: bool,
     pub flashscore_bypass: bool,
     pub game_filter: GameFilter,
@@ -182,6 +194,8 @@ impl Default for AppConfig {
         Self {
             last_strategy: String::new(),
             autostart: true,
+            session_zapret: false,
+            session_initialized: false,
             check_updates: true,
             flashscore_bypass: true,
             game_filter: GameFilter::Disabled,
