@@ -159,7 +159,7 @@ pub fn check() -> Result<Option<UpdateInfo>, String> {
     }))
 }
 
-fn download(asset: &Asset) -> Result<PathBuf, String> {
+fn download(app: &tauri::AppHandle, asset: &Asset) -> Result<(PathBuf, u64), String> {
     let digest = asset
         .digest
         .as_deref()
@@ -180,15 +180,16 @@ fn download(asset: &Asset) -> Result<PathBuf, String> {
             response.status()
         ));
     }
-    if let Some(length) = response.content_length() {
-        if length > MAX_UPDATE_BYTES {
-            return Err("Файл обновления подозрительно большой.".into());
-        }
+    let total = response.content_length().unwrap_or(0);
+    if total > MAX_UPDATE_BYTES {
+        return Err("Файл обновления подозрительно большой.".into());
     }
 
     let mut file = fs::File::create(&destination).map_err(|e| e.to_string())?;
     let mut buffer = [0u8; 64 * 1024];
     let mut written = 0u64;
+    let mut throttle = crate::progress::Throttle::new();
+    crate::progress::update(app, "app-update", "Обновление приложения", 0, total);
     loop {
         let read = response.read(&mut buffer).map_err(|e| e.to_string())?;
         if read == 0 {
@@ -200,13 +201,16 @@ fn download(asset: &Asset) -> Result<PathBuf, String> {
             return Err("Файл обновления подозрительно большой.".into());
         }
         file.write_all(&buffer[..read]).map_err(|e| e.to_string())?;
+        if throttle.ready() {
+            crate::progress::update(app, "app-update", "Обновление приложения", written, total);
+        }
     }
 
     if let Err(error) = runtime::verify_digest(&destination, digest) {
         let _ = fs::remove_file(&destination);
         return Err(error);
     }
-    Ok(destination)
+    Ok((destination, written))
 }
 
 fn relaunch_args() -> Vec<OsString> {
@@ -279,7 +283,16 @@ pub fn apply_latest(app: &tauri::AppHandle) -> Result<(), String> {
     )?;
 
     let _ = app.emit("app-update-progress", "Скачивание обновления…");
-    let downloaded = download(asset)?;
+    let downloaded = match download(app, asset) {
+        Ok((path, written)) => {
+            crate::progress::finish(app, "app-update", "Обновление приложения", written);
+            path
+        }
+        Err(error) => {
+            crate::progress::fail(app, "app-update", "Обновление приложения", &error);
+            return Err(error);
+        }
+    };
     let _ = app.emit("app-update-progress", "Установка и перезапуск…");
     replace_and_restart(&downloaded)
 }

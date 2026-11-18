@@ -79,7 +79,23 @@ pub fn is_update_available(installed: Option<&str>, latest: &str) -> bool {
 
 /// Download the release archive to a temp file with a fixed local name. The
 /// remote asset name is untrusted input and must never become a path component.
-pub fn download_to_temp(url: &str, tmp_dir: &Path) -> Result<PathBuf, String> {
+pub fn download_to_temp(
+    app: &tauri::AppHandle,
+    url: &str,
+    tmp_dir: &Path,
+) -> Result<PathBuf, String> {
+    let result = download_to_temp_inner(app, url, tmp_dir);
+    if let Err(error) = &result {
+        crate::progress::fail(app, "zapret-runtime", "Скачивание flowseal-zapret", error);
+    }
+    result
+}
+
+fn download_to_temp_inner(
+    app: &tauri::AppHandle,
+    url: &str,
+    tmp_dir: &Path,
+) -> Result<PathBuf, String> {
     fs::create_dir_all(tmp_dir).map_err(|e| e.to_string())?;
     let dest = tmp_dir.join("release.zip");
     let client = http_client(Duration::from_secs(600))?;
@@ -90,15 +106,22 @@ pub fn download_to_temp(url: &str, tmp_dir: &Path) -> Result<PathBuf, String> {
     if !resp.status().is_success() {
         return Err(format!("Ошибка скачивания: {}", resp.status()));
     }
-    if let Some(length) = resp.content_length() {
-        if length > MAX_ARCHIVE_BYTES {
-            return Err("Архив релиза подозрительно большой.".into());
-        }
+    let total = resp.content_length().unwrap_or(0);
+    if total > MAX_ARCHIVE_BYTES {
+        return Err("Архив релиза подозрительно большой.".into());
     }
 
     let mut file = fs::File::create(&dest).map_err(|e| e.to_string())?;
     let mut buffer = [0u8; 64 * 1024];
     let mut written = 0u64;
+    let mut throttle = crate::progress::Throttle::new();
+    crate::progress::update(
+        app,
+        "zapret-runtime",
+        "Скачивание flowseal-zapret",
+        0,
+        total,
+    );
     loop {
         let read = resp.read(&mut buffer).map_err(|e| e.to_string())?;
         if read == 0 {
@@ -110,7 +133,17 @@ pub fn download_to_temp(url: &str, tmp_dir: &Path) -> Result<PathBuf, String> {
             return Err("Архив релиза подозрительно большой.".into());
         }
         file.write_all(&buffer[..read]).map_err(|e| e.to_string())?;
+        if throttle.ready() {
+            crate::progress::update(
+                app,
+                "zapret-runtime",
+                "Скачивание flowseal-zapret",
+                written,
+                total,
+            );
+        }
     }
+    crate::progress::finish(app, "zapret-runtime", "Скачивание flowseal-zapret", written);
     Ok(dest)
 }
 

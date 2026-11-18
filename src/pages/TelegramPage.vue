@@ -16,7 +16,6 @@ import CardHeader from "../components/ui/card/CardHeader.vue";
 import CardTitle from "../components/ui/card/CardTitle.vue";
 import Button from "../components/ui/button/Button.vue";
 import Switch from "../components/ui/switch/Switch.vue";
-import Toggle from "../components/Toggle.vue";
 import { formatBytes } from "../lib/labels";
 import {
   displayHost,
@@ -51,7 +50,6 @@ import {
   tgwsStatus,
   tgwsUpdate,
   toggleTgws,
-  toggleTgwsAutostart,
 } from "../store";
 
 const hostDraft = ref("");
@@ -349,14 +347,9 @@ async function commitSecret() {
           />
         </label>
 
-        <Toggle
-          class="field-wide"
-          label="Запускать прокси вместе с приложением"
-          hint="Порядок адресов Telegram: сначала прокси, потом клиент"
-          :checked="config?.tgws.autostart"
-          :disabled="tgwsBusy"
-          @change="toggleTgwsAutostart"
-        />
+        <p class="tgws-hint field-wide">
+          Прокси включится при следующем запуске, если был включён при выходе.
+        </p>
 
         <p v-if="publicBinding" class="tgws-warning field-wide">
           <AlertTriangle :size="14" />

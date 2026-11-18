@@ -576,7 +576,13 @@ fn describe_error(error: &dyn std::error::Error) -> String {
 
 /// Streams the archive straight to disk, retrying: release downloads do break
 /// on flaky links, and a second attempt usually lands on a better edge node.
-fn download_file(url: &str, target: &Path) -> Result<u64, String> {
+fn download_file(
+    app: &AppHandle,
+    id: &str,
+    label: &str,
+    url: &str,
+    target: &Path,
+) -> Result<u64, String> {
     let client = download_client()?;
     let mut last_error = String::from("неизвестная ошибка");
     for attempt in 1..=3 {
@@ -586,10 +592,28 @@ fn download_file(url: &str, target: &Path) -> Result<u64, String> {
                 .send()
                 .and_then(reqwest::blocking::Response::error_for_status)
                 .map_err(|e| describe_error(&e))?;
+            let total = response.content_length().unwrap_or(0);
             let mut file = fs::File::create(target).map_err(|e| describe_error(&e))?;
-            // `Response: Read` converts body failures into `io::Error`, and the
-            // chain keeps the original reason.
-            std::io::copy(&mut response, &mut file).map_err(|e| describe_error(&e))
+            let mut buffer = [0u8; 64 * 1024];
+            let mut received = 0u64;
+            let mut throttle = crate::progress::Throttle::new();
+            crate::progress::update(app, id, label, 0, total);
+            loop {
+                // `Response: Read` converts body failures into `io::Error`, and
+                // the chain keeps the original reason.
+                let read = response.read(&mut buffer).map_err(|e| describe_error(&e))?;
+                if read == 0 {
+                    break;
+                }
+                file.write_all(&buffer[..read])
+                    .map_err(|e| describe_error(&e))?;
+                received += read as u64;
+                if throttle.ready() {
+                    crate::progress::update(app, id, label, received, total);
+                }
+            }
+            crate::progress::finish(app, id, label, received);
+            Ok(received)
         })();
         match result {
             Ok(size) => return Ok(size),
@@ -601,6 +625,7 @@ fn download_file(url: &str, target: &Path) -> Result<u64, String> {
             }
         }
     }
+    crate::progress::fail(app, id, label, &last_error);
     Err(last_error)
 }
 
@@ -663,8 +688,14 @@ fn install_core_locked(app: &AppHandle) -> Result<String, String> {
 
     fs::create_dir_all(dir()).map_err(|e| format!("Не удалось создать папку ядра: {e}"))?;
     let archive = dir().join("xray.zip");
-    let size = download_file(&asset.browser_download_url, &archive)
-        .map_err(|e| format!("Не удалось скачать Xray: {e}"))?;
+    let size = download_file(
+        app,
+        "xray-core",
+        "Скачивание ядра Xray",
+        &asset.browser_download_url,
+        &archive,
+    )
+    .map_err(|e| format!("Не удалось скачать Xray: {e}"))?;
     if size < 1024 * 1024 {
         return Err("Скачанный архив Xray подозрительно мал.".into());
     }
@@ -716,8 +747,14 @@ pub fn update_bases(app: &AppHandle) -> Result<BasesSummary, String> {
     let mut sources = Vec::new();
     for (name, url) in BASE_SOURCES {
         let target = dir().join(format!("{name}.dat"));
-        let size = download_file(url, &target)
-            .map_err(|e| format!("Не удалось скачать список {name}: {e}"))?;
+        let size = download_file(
+            app,
+            &format!("bases-{name}"),
+            &format!("Списки доменов: {name}"),
+            url,
+            &target,
+        )
+        .map_err(|e| format!("Не удалось скачать список {name}: {e}"))?;
         if size < 100 * 1024 {
             return Err(format!("Список {name} скачался подозрительно малым."));
         }
@@ -1356,6 +1393,8 @@ fn start_locked(app: &AppHandle) -> Result<(), String> {
         s.pid = Some(pid);
         s.last_error = None;
     });
+    // Remember the state so the next launch can restore it.
+    let _ = save_cfg(app, |cfg| cfg.session_running = true);
     // Browsers follow the same whitelist through the HTTP inbound.
     if cfg.system_proxy {
         if let Err(error) = apply_system_proxy(cfg.http_port) {
@@ -1401,6 +1440,7 @@ fn spawn_watcher(app: AppHandle, pid: u32) {
 }
 
 fn stop_locked(app: &AppHandle) -> Result<(), String> {
+    let _ = save_cfg(app, |cfg| cfg.session_running = false);
     let taken = {
         let state = app.state::<AppState>();
         let mut guard = lock(&state.xray.child);
