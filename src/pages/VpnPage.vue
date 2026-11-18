@@ -201,18 +201,23 @@ function prettySite(site: string): string {
   return site.replace(/^(domain|full|regexp):/, "");
 }
 
-async function saveSites(next: string[]) {
+async function saveSites(next: string[]): Promise<boolean> {
   try {
     await setXrayProxySites(next);
+    return true;
   } catch {
-    /* тост уже показан */
+    // The toast is already shown by the action.
+    return false;
   }
 }
 
 async function addSite() {
   const value = siteDraft.value.trim();
   if (!value) return;
-  await saveSites([...sites.value, value]);
+  // Only look for extra domains once the site is really in the list: a failed
+  // save already explains itself, and a discovery error on top of it reads as
+  // "the site was not added".
+  if (!(await saveSites([...sites.value, value]))) return;
   siteDraft.value = "";
   // A site is rarely one host: ask the backend what else it loads.
   void discover(value);
@@ -261,7 +266,8 @@ async function discover(site: string) {
     }));
   } catch (error) {
     suggestions.value = [];
-    toast("warning", String(error));
+    // The site itself is already saved; only the extra-domain lookup failed.
+    toast("warning", `Сайт добавлен, но проверить дополнительные домены не удалось: ${error}`);
   } finally {
     discovering.value = false;
   }
