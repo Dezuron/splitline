@@ -19,7 +19,6 @@ import CardDescription from "../components/ui/card/CardDescription.vue";
 import CardHeader from "../components/ui/card/CardHeader.vue";
 import CardTitle from "../components/ui/card/CardTitle.vue";
 import Button from "../components/ui/button/Button.vue";
-import Switch from "../components/ui/switch/Switch.vue";
 import Toggle from "../components/Toggle.vue";
 import {
   config,
@@ -306,6 +305,25 @@ async function toggleSystemProxy(enabled: boolean) {
   }
 }
 
+/** Browsers are covered only while the tunnel is up and the proxy is applied. */
+const sitesEnabled = computed(() => running.value && !!config.value?.xray.system_proxy);
+
+/** The tunnel is shared: it carries Telegram and, when enabled, the browsers. */
+async function setTunnel(enabled: boolean) {
+  if (enabled === running.value) return;
+  await toggleXray();
+}
+
+/** Turning sites on also raises the tunnel, so the switch is never dead. */
+async function setSites(enabled: boolean) {
+  if (enabled === sitesEnabled.value) return;
+  if (enabled && !running.value) {
+    await toggleXray();
+    if (!running.value) return;
+  }
+  await toggleSystemProxy(enabled);
+}
+
 /** Installs a downloaded `Xray-windows-64.zip`: the way out when GitHub is blocked. */
 async function installCoreFromFile() {
   const picked = await openDialog({
@@ -353,15 +371,25 @@ function pingLabel(ms: number | null): string {
             :class="{ ok: running, warn: transitioning, danger: xrayStatus?.state === 'error' }"
             aria-hidden="true"
           ></span>
-          <Switch
-            :model-value="running"
-            :disabled="xrayBusy || transitioning || !canConnect"
-            aria-label="Подключить или отключить VPN"
-            @update:model-value="toggleXray"
-          />
         </div>
       </CardHeader>
       <CardContent class="vpn-hero-content">
+        <div class="vpn-toggles">
+          <Toggle
+            label="VPN для Telegram"
+            hint="Туннель для Telegram: один раз подтвердите прокси в приложении Telegram"
+            :checked="running"
+            :disabled="xrayBusy || transitioning || !canConnect"
+            @change="setTunnel"
+          />
+          <Toggle
+            label="VPN для сайтов"
+            hint="Браузеры через системный прокси. Включение поднимет туннель, если он выключен"
+            :checked="sitesEnabled"
+            :disabled="xrayBusy || transitioning || !canConnect"
+            @change="setSites"
+          />
+        </div>
         <div class="vpn-meta">
           <div>
             <span>Локация</span>
@@ -479,7 +507,7 @@ function pingLabel(ms: number | null): string {
         <strong>Браузеры идут мимо VPN</strong>
         <span>
           VPN включён, но системный прокси выключен — Chrome и другие браузеры открывают сайты
-          напрямую. Включите «Браузеры через VPN» ниже, иначе заблокированные сайты не откроются.
+          напрямую. Включите «VPN для сайтов» выше, иначе заблокированные сайты не откроются.
         </span>
       </div>
       <Button size="sm" :disabled="xrayBusy" @click="toggleSystemProxy(true)">Включить</Button>
@@ -519,20 +547,12 @@ function pingLabel(ms: number | null): string {
 
     <Card class="vpn-card">
       <CardHeader>
-        <CardTitle>Telegram и браузеры</CardTitle>
+        <CardTitle>Подключение Telegram</CardTitle>
         <CardDescription>
-          Переключатель ниже включает VPN для браузеров. Telegram подключается отдельно, один раз —
-          дальше он ходит через VPN сам.
+          Один раз подтвердите прокси в Telegram — дальше он ходит через VPN сам, как и сайты.
         </CardDescription>
       </CardHeader>
       <CardContent class="vpn-connect">
-        <Toggle
-          label="Браузеры через VPN"
-          hint="Включается только при работающем VPN; при выходе из приложения настройки возвращаются"
-          :checked="config?.xray.system_proxy"
-          :disabled="xrayBusy || !running"
-          @change="toggleSystemProxy"
-        />
         <div class="vpn-link-row">
           <code class="vpn-link">{{ xrayLink || "ссылка появится после запуска" }}</code>
           <Button
@@ -793,6 +813,13 @@ function pingLabel(ms: number | null): string {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Two explicit switches at the top: the tunnel and the browsers. */
+.vpn-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .vpn-meta {
