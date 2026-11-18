@@ -105,6 +105,52 @@ impl Default for TgwsConfig {
     }
 }
 
+/// VPN subscription settings: a URL that returns ready-made Xray configs.
+///
+/// The provider binds the subscription to a device id (Windows `MachineGuid`),
+/// so the URL and the chosen profile are all that has to be remembered.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct XrayConfig {
+    /// Subscription endpoint; empty means "not configured".
+    pub subscription_url: String,
+    /// Index of the profile inside the subscription.
+    pub selected: usize,
+    /// Local SOCKS5 port Telegram is pointed at.
+    pub socks_port: u16,
+    /// Local HTTP port for browsers.
+    pub http_port: u16,
+    /// Start the tunnel together with the application.
+    pub autostart: bool,
+    /// Domains that must go through the tunnel. Everything else stays direct:
+    /// the list is a whitelist, not a blacklist.
+    pub proxy_sites: Vec<String>,
+    /// Point the Windows system proxy at the local HTTP inbound, so browsers
+    /// follow the very same rules.
+    pub system_proxy: bool,
+    pub installed_version: String,
+    /// Unix time of the last successful domain-list update (`geosite.dat`).
+    pub bases_updated_at: u64,
+}
+
+impl Default for XrayConfig {
+    fn default() -> Self {
+        Self {
+            subscription_url: String::new(),
+            selected: 0,
+            // Deliberately away from the 10808/10809 a stock client uses, so
+            // both can run at once without fighting over the port.
+            socks_port: 17808,
+            http_port: 17809,
+            autostart: false,
+            proxy_sites: Vec::new(),
+            system_proxy: false,
+            installed_version: String::new(),
+            bases_updated_at: 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -128,6 +174,7 @@ pub struct AppConfig {
     /// UI theme: `satellite` or `carmine`.
     pub theme: String,
     pub tgws: TgwsConfig,
+    pub xray: XrayConfig,
 }
 
 impl Default for AppConfig {
@@ -147,6 +194,7 @@ impl Default for AppConfig {
             last_run_version: String::new(),
             theme: "satellite".into(),
             tgws: TgwsConfig::default(),
+            xray: XrayConfig::default(),
         }
     }
 }

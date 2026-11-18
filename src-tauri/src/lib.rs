@@ -5,6 +5,7 @@ mod config;
 mod engine;
 mod error;
 mod generator;
+mod geo;
 mod job;
 mod probe;
 mod runtime;
@@ -13,6 +14,7 @@ mod sys;
 mod tgws;
 mod updater;
 mod whats_new;
+mod xray;
 
 #[cfg(test)]
 mod bench_live_tests;
@@ -52,6 +54,8 @@ pub struct AppState {
     pub last_bench: Mutex<Option<BenchSummary>>,
     /// Supervisor for the bundled Telegram MTProto proxy.
     pub tgws: crate::tgws::Tgws,
+    /// Supervisor for the Xray core behind the VPN subscription.
+    pub xray: crate::xray::Xray,
 }
 
 impl AppState {
@@ -63,6 +67,7 @@ impl AppState {
             bench_cancel: Arc::new(AtomicBool::new(false)),
             last_bench: Mutex::new(None),
             tgws: crate::tgws::Tgws::new(),
+            xray: crate::xray::Xray::new(),
         }
     }
 }
@@ -566,6 +571,28 @@ pub fn run() {
             commands::set_tgws_host,
             commands::set_tgws_port,
             commands::set_tgws_secret,
+            commands::get_xray_status,
+            commands::get_xray_profiles,
+            commands::refresh_xray_subscription,
+            commands::set_xray_subscription,
+            commands::select_xray_profile,
+            commands::set_xray_ports,
+            commands::set_xray_autostart,
+            commands::install_xray_core,
+            commands::install_xray_core_from_file,
+            commands::start_xray,
+            commands::stop_xray,
+            commands::restart_xray,
+            commands::get_xray_logs,
+            commands::open_xray_in_telegram,
+            commands::get_xray_telegram_link,
+            commands::set_xray_proxy_sites,
+            commands::get_xray_site_bundles,
+            commands::discover_xray_sites,
+            commands::update_xray_site_bases,
+            commands::import_xray_sites,
+            commands::export_xray_sites,
+            commands::set_xray_system_proxy,
             commands::use_tgws_fallback_port,
             commands::open_tgws_log,
             commands::open_telegram_link,
@@ -663,6 +690,35 @@ pub fn run() {
                 }
             }
 
+            // VPN subscription: the core is downloaded on first use, so the
+            // autostart path installs it first and then connects.
+            {
+                // A crash last session may have left WinINET pointing at our
+                // HTTP inbound while nothing listens there. Start from a clean
+                // state; the autostart block below re-applies it when needed.
+                crate::xray::restore_system_proxy();
+                let enabled = {
+                    let state = app.state::<AppState>();
+                    let cfg = lock_config(&state);
+                    cfg.xray.autostart && !cfg.xray.subscription_url.trim().is_empty()
+                };
+                if enabled {
+                    let handle = app.handle().clone();
+                    std::thread::spawn(move || {
+                        if crate::xray::ensure_core(&handle).is_ok() {
+                            let still_enabled = {
+                                let state = handle.state::<AppState>();
+                                let cfg = lock_config(&state);
+                                cfg.xray.autostart
+                            };
+                            if still_enabled {
+                                let _ = crate::xray::start(&handle);
+                            }
+                        }
+                    });
+                }
+            }
+
             // On autostart, start hidden
             if is_autostart {
                 if let Some(w) = app.get_webview_window("main") {
@@ -713,6 +769,8 @@ pub fn run() {
             ) {
                 // Telegram proxy: a child process, stopped through the job object.
                 crate::tgws::stop_on_exit(app_handle);
+                // Xray core: same story, it must not outlive the app.
+                crate::xray::stop_on_exit(app_handle);
                 // DPI bypass: a Windows service, stopped through the SCM (never
                 // by spawning `sc.exe`, which fails during session shutdown).
                 crate::engine::Engine::stop_service();

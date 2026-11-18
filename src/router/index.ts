@@ -2,6 +2,7 @@ import { createRouter, createWebHashHistory } from "vue-router";
 import OverviewPage from "../pages/OverviewPage.vue";
 import SettingsPage from "../pages/SettingsPage.vue";
 import TelegramPage from "../pages/TelegramPage.vue";
+import VpnPage from "../pages/VpnPage.vue";
 import ZapretPage from "../pages/ZapretPage.vue";
 
 const router = createRouter({
@@ -10,6 +11,7 @@ const router = createRouter({
     { path: "/", name: "overview", component: OverviewPage, meta: { title: "Главная" } },
     { path: "/zapret", name: "zapret", component: ZapretPage, meta: { title: "Zapret" } },
     { path: "/telegram", name: "telegram", component: TelegramPage, meta: { title: "Telegram" } },
+    { path: "/vpn", name: "vpn", component: VpnPage, meta: { title: "VPN" } },
     { path: "/settings", name: "settings", component: SettingsPage, meta: { title: "Настройки" } },
     { path: "/:pathMatch(.*)*", redirect: "/" },
   ],

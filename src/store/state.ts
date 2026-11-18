@@ -9,6 +9,8 @@ import type {
   QuickCheck,
   TgwsStatus,
   TgwsUpdateInfo,
+  XrayProfile,
+  XrayStatus,
   UpdateInfo,
   WhatsNew,
 } from "../types";
@@ -48,6 +50,13 @@ export const tgwsBusy = ref(false);
 export const tgwsChecking = ref(false);
 export const tgwsProgress = ref<string | null>(null);
 
+export const xrayStatus = ref<XrayStatus | null>(null);
+export const xrayProfiles = ref<XrayProfile[]>([]);
+export const xrayLogs = ref<string[]>([]);
+export const xrayBusy = ref(false);
+export const xrayLink = ref("");
+export const xrayError = ref<string | null>(null);
+
 export const running = computed(() => status.value?.running ?? false);
 export const runtimeReady = computed(() => status.value?.runtime_valid ?? false);
 export const runtimePath = computed(() => config.value?.runtime_path ?? "");
@@ -63,6 +72,14 @@ export const showWhatsNew = computed(() => !!whatsNew.value && !showSetupWizard.
 export const currentName = computed(() => status.value?.current_strategy ?? "");
 export const appVersion = computed(() => status.value?.app_version ?? "");
 
+export const vpnActive = computed(() => xrayStatus.value?.state === "running");
+
+/** The status line reads "A, B и C" — names in the order they matter. */
+function joinActive(names: string[]): string {
+  if (names.length <= 1) return names.join("");
+  return `${names.slice(0, -1).join(", ")} и ${names[names.length - 1]}`;
+}
+
 export const statusText = computed(() => {
   if (!status.value) return "Загрузка…";
   if (benchRunning.value) return "Идёт проверка стратегий";
@@ -70,13 +87,19 @@ export const statusText = computed(() => {
   const bypassActive = status.value.runtime_valid && running.value;
   const telegramActive = tgwsRunning.value;
 
-  if (bypassActive && telegramActive) return "Zapret и Telegram работают";
+  const active: string[] = [];
+  if (bypassActive) active.push("Zapret");
+  if (telegramActive) active.push("Telegram");
+  if (vpnActive.value) active.push("VPN");
+  if (active.length > 1) return `${joinActive(active)} работают`;
+
   if (bypassActive) return "Zapret работает";
   if (telegramActive) {
     return status.value.runtime_valid
       ? "Telegram-прокси работает"
       : "Telegram-прокси работает · zapret не установлен";
   }
+  if (vpnActive.value) return "VPN включён";
   if (!status.value.runtime_valid) return "flowseal-zapret не установлен";
   return "Zapret и Telegram выключены";
 });
@@ -86,7 +109,7 @@ export const statusTone = computed<"ok" | "idle" | "danger">(() => {
   if (benchRunning.value) return "idle";
 
   const bypassActive = status.value.runtime_valid && running.value;
-  if (bypassActive || tgwsRunning.value) return "ok";
+  if (bypassActive || tgwsRunning.value || vpnActive.value) return "ok";
   return status.value.runtime_valid ? "idle" : "danger";
 });
 
