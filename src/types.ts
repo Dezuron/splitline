@@ -35,6 +35,7 @@ export interface ConfigView {
   bench_budget: number;
   bench_auto_apply: boolean;
   tgws: TgwsConfigView;
+  xray: XrayConfigView;
 }
 
 export interface TgwsConfigView {
@@ -55,6 +56,70 @@ export interface TgwsStatus {
   binary_present: boolean;
   port_conflict: boolean;
   client_connections_total: number;
+}
+
+export type XrayState = "stopped" | "starting" | "running" | "stopping" | "error" | "not_installed";
+
+export interface XrayStatus {
+  state: XrayState;
+  pid: number | null;
+  last_error: string | null;
+  installed_version: string;
+  binary_present: boolean;
+  socks_port: number;
+  http_port: number;
+  selected: number;
+  profile_name: string;
+  client_connections: number;
+  system_proxy: boolean;
+  fetched_at: number;
+}
+
+export interface XrayProfile {
+  index: number;
+  name: string;
+  host: string;
+  port: number;
+  scheme: string;
+  ping_ms: number | null;
+}
+
+/** A host the page referenced, with how often (`hits` = DevTools-lite). */
+export interface XraySiteCandidate {
+  host: string;
+  hits: number;
+  strong: boolean;
+}
+
+export interface XrayConfigView {
+  subscription_url: string;
+  selected: number;
+  socks_port: number;
+  http_port: number;
+  autostart: boolean;
+  /** Whitelist: only these sites go through the tunnel. */
+  proxy_sites: string[];
+  /** Windows system proxy points at the local HTTP inbound. */
+  system_proxy: boolean;
+  installed_version: string;
+  /** Unix time of the last domain-list update, 0 when never updated. */
+  bases_updated_at: number;
+}
+
+/** A ready-made service: one `geosite:` category behind a human name. */
+export interface XraySiteBundle {
+  name: string;
+  category: string;
+  domains: number;
+  available: boolean;
+  /** Traffic the proxy cannot carry, e.g. Discord voice over UDP. */
+  note: string | null;
+}
+
+export interface XrayBasesSummary {
+  categories: number;
+  domains: number;
+  updated_at: number;
 }
 
 export interface TgwsNotice {
