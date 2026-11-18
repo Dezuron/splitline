@@ -96,6 +96,7 @@ pub(crate) fn start_inner(state: &AppState, name: Option<&str>) -> Result<(), St
     {
         let mut cfg = lock_config(state);
         cfg.last_strategy = resolved_name;
+        cfg.session_zapret = true;
         let _ = config::save_config(&cfg);
     }
     Ok(())
@@ -112,5 +113,10 @@ pub fn stop(state: State<'_, AppState>) -> AppResult<()> {
     ensure_idle(&state)?;
     // Stop the service and clean up the WinDivert driver (like service.bat "Remove Services").
     engine::Engine::remove()?;
+    {
+        let mut cfg = lock_config(&state);
+        cfg.session_zapret = false;
+        let _ = config::save_config(&cfg);
+    }
     Ok(())
 }

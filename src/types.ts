@@ -106,6 +106,16 @@ export interface XrayConfigView {
   bases_updated_at: number;
 }
 
+/** A long download the UI should show progress for. */
+export interface DownloadProgress {
+  id: string;
+  label: string;
+  received: number;
+  total: number;
+  done: boolean;
+  error: string | null;
+}
+
 /** A ready-made service: one `geosite:` category behind a human name. */
 export interface XraySiteBundle {
   name: string;
