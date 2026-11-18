@@ -35,3 +35,7 @@ build/tgws
 *.njsproj
 *.sln
 *.sw?
+# Playwright MCP snapshots
+.playwright-mcp/
+# Local build output in the repo root
+/Splitline.exe

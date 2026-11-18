@@ -25,11 +25,13 @@ mod settings;
 mod strategies;
 mod tgws;
 mod updates;
+mod xray;
 pub use benchmark::*;
 pub use settings::*;
 pub use strategies::*;
 pub use tgws::*;
 pub use updates::*;
+pub use xray::*;
 
 /// Timeout for one host/protocol probe. Four seconds per protocol is enough for a
 /// healthy handshake and keeps a fully broken candidate from eating minutes.
@@ -73,6 +75,20 @@ pub struct TgwsConfigView {
 }
 
 #[derive(Serialize)]
+pub struct XrayConfigView {
+    pub subscription_url: String,
+    pub selected: usize,
+    pub socks_port: u16,
+    pub http_port: u16,
+    pub autostart: bool,
+    pub proxy_sites: Vec<String>,
+    pub system_proxy: bool,
+    pub installed_version: String,
+    /// Unix time of the last domain-list update, 0 when never updated.
+    pub bases_updated_at: u64,
+}
+
+#[derive(Serialize)]
 pub struct ConfigView {
     pub autostart: bool,
     pub check_updates: bool,
@@ -85,6 +101,7 @@ pub struct ConfigView {
     pub bench_budget: usize,
     pub bench_auto_apply: bool,
     pub tgws: TgwsConfigView,
+    pub xray: XrayConfigView,
 }
 
 /// Result of an on-demand check: either the current strategy (service running)
@@ -211,6 +228,22 @@ pub fn get_config(state: State<'_, AppState>) -> AppResult<ConfigView> {
             port: cfg.tgws.port,
             secret: cfg.tgws.secret.clone(),
             installed_version: crate::tgws::upstream_version(&cfg.tgws.installed_version),
+        },
+        xray: XrayConfigView {
+            subscription_url: cfg.xray.subscription_url.clone(),
+            selected: cfg.xray.selected,
+            socks_port: cfg.xray.socks_port,
+            http_port: cfg.xray.http_port,
+            autostart: cfg.xray.autostart,
+            proxy_sites: cfg
+                .xray
+                .proxy_sites
+                .iter()
+                .filter_map(|site| crate::xray::normalize_site(site))
+                .collect(),
+            system_proxy: cfg.xray.system_proxy,
+            installed_version: cfg.xray.installed_version.clone(),
+            bases_updated_at: cfg.xray.bases_updated_at,
         },
     })
 }

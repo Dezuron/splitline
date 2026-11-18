@@ -8,8 +8,10 @@ import {
   Send,
   Settings2,
   ShieldCheck,
+  Zap,
 } from "lucide-vue-next";
-import logo from "../assets/logo.png";
+import logoCarmine from "../assets/logo-carmine.png";
+import logoSatellite from "../assets/logo-satellite.png";
 import { appVersion } from "../store";
 
 const collapsed = ref(false);
@@ -18,6 +20,7 @@ const items = [
   { to: "/", id: "dashboard", label: "Главная", icon: LayoutDashboard },
   { to: "/zapret", id: "zapret", label: "Zapret", icon: ShieldCheck },
   { to: "/telegram", id: "telegram", label: "Telegram", icon: Send },
+  { to: "/vpn", id: "vpn", label: "VPN", icon: Zap },
   { to: "/settings", id: "settings", label: "Настройки", icon: Settings2 },
 ];
 </script>
@@ -25,7 +28,8 @@ const items = [
 <template>
   <aside class="sidebar" :class="{ collapsed }" aria-label="Основная навигация">
     <div class="sidebar-brand">
-      <img class="brand-icon" :src="logo" alt="" aria-hidden="true" />
+      <img class="brand-icon brand-icon-satellite" :src="logoSatellite" alt="" aria-hidden="true" />
+      <img class="brand-icon brand-icon-carmine" :src="logoCarmine" alt="" aria-hidden="true" />
       <div v-if="!collapsed" class="brand-text">
         <strong>Splitline</strong>
       </div>
