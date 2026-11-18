@@ -771,9 +771,29 @@ fn check_category(code: &str) -> Result<(), String> {
 
 fn ensure_core_locked(app: &AppHandle) -> Result<(), String> {
     if binary_path().exists() {
+        // A config written before the version was known (reinstall, config reset)
+        // leaves `installed_version` empty and the UI says "не установлено"
+        // while the core runs. Read it from the binary once.
+        if load_cfg(app).installed_version.is_empty() {
+            if let Some(version) = probe_core_version(&binary_path()) {
+                remember_core_version(app, &version)?;
+            }
+        }
         return Ok(());
     }
     install_core_locked(app).map(|_| ())
+}
+
+/// `xray -version` prints `Xray 26.11.9 (Xray, Penetrates Everything.) ...`.
+fn probe_core_version(binary: &Path) -> Option<String> {
+    let output = Command::new(binary).arg("-version").output().ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let line = text.lines().next()?.trim();
+    let mut parts = line.split_whitespace();
+    match parts.next() {
+        Some("Xray") => parts.next().map(str::to_string),
+        _ => None,
+    }
 }
 
 pub fn ensure_core(app: &AppHandle) -> Result<(), String> {
