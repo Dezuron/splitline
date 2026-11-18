@@ -184,7 +184,7 @@ fn encode(sites: &[Site]) -> Vec<u8> {
 }
 
 fn put_varint_field(out: &mut Vec<u8>, field: u32, value: u64) {
-    put_varint(out, ((field as u64) << 3) | 0);
+    put_varint(out, (field as u64) << 3);
     put_varint(out, value);
 }
 

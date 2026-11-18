@@ -589,7 +589,6 @@ pub fn run() {
             commands::set_xray_proxy_sites,
             commands::get_xray_site_bundles,
             commands::discover_xray_sites,
-            commands::get_xray_site_bundles,
             commands::update_xray_site_bases,
             commands::import_xray_sites,
             commands::export_xray_sites,
