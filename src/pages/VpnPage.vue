@@ -3,16 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { toast } from "../lib/toast";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { XraySiteBundle, XraySiteCandidate } from "../types";
-import {
-  AlertTriangle,
-  Copy,
-  Download,
-  ExternalLink,
-  RefreshCw,
-  RotateCw,
-  Send,
-  Zap,
-} from "lucide-vue-next";
+import { AlertTriangle, Copy, Download, RefreshCw, RotateCw, Send, Zap } from "lucide-vue-next";
 import Card from "../components/ui/card/Card.vue";
 import CardContent from "../components/ui/card/CardContent.vue";
 import CardDescription from "../components/ui/card/CardDescription.vue";
@@ -419,6 +410,23 @@ function pingLabel(ms: number | null): string {
           />
         </label>
 
+        <div class="field field-wide">
+          <span class="field-label">Ссылка для Telegram</span>
+          <div class="vpn-link-row">
+            <code class="vpn-link">{{ xrayLink || "ссылка появится после запуска" }}</code>
+            <Button
+              variant="outline"
+              size="icon"
+              title="Копировать ссылку"
+              aria-label="Копировать ссылку для Telegram"
+              :disabled="!xrayLink"
+              @click="copyXrayLink"
+            >
+              <Copy :size="15" />
+            </Button>
+          </div>
+        </div>
+
         <div class="vpn-actions">
           <Button
             size="sm"
@@ -542,34 +550,6 @@ function pingLabel(ms: number | null): string {
           }}».
         </span>
       </div>
-    </Card>
-
-    <Card class="vpn-card">
-      <CardHeader>
-        <CardTitle>Подключение Telegram</CardTitle>
-        <CardDescription>
-          Один раз подтвердите прокси в Telegram — дальше он ходит через VPN сам, как и сайты.
-        </CardDescription>
-      </CardHeader>
-      <CardContent class="vpn-connect">
-        <div class="vpn-link-row">
-          <code class="vpn-link">{{ xrayLink || "ссылка появится после запуска" }}</code>
-          <Button
-            variant="outline"
-            size="icon"
-            title="Копировать ссылку"
-            aria-label="Копировать ссылку"
-            :disabled="!xrayLink"
-            @click="copyXrayLink"
-          >
-            <Copy :size="15" />
-          </Button>
-        </div>
-        <Button class="vpn-wide" variant="outline" :disabled="!running" @click="openXrayInTelegram">
-          <ExternalLink :size="15" />
-          Открыть в Telegram
-        </Button>
-      </CardContent>
     </Card>
 
     <Card class="vpn-card">
@@ -855,12 +835,6 @@ function pingLabel(ms: number | null): string {
   gap: 8px;
 }
 
-/* Full-width action inside the Telegram card. */
-.vpn-wide {
-  width: 100%;
-  justify-content: center;
-}
-
 .vpn-hint-card {
   display: flex;
   align-items: center;
@@ -940,12 +914,6 @@ function pingLabel(ms: number | null): string {
   color: var(--danger);
   font-size: 12px;
   line-height: 1.45;
-}
-
-.vpn-connect {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
 }
 
 .vpn-link-row {
