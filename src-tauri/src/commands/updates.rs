@@ -128,7 +128,7 @@ fn apply_update_blocking(
 
     let _ = app.emit_to("main", "update-progress", "Скачивание релиза…");
 
-    let zip_path = runtime::download_to_temp(&url, &tmp)?;
+    let zip_path = runtime::download_to_temp(app, &url, &tmp)?;
 
     if let Some(digest) = digest.as_deref() {
         if let Err(err) = runtime::verify_digest(&zip_path, digest) {
