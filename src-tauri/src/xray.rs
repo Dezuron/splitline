@@ -808,9 +808,29 @@ fn check_category(code: &str) -> Result<(), String> {
 
 fn ensure_core_locked(app: &AppHandle) -> Result<(), String> {
     if binary_path().exists() {
+        // A config written before the version was known (reinstall, config reset)
+        // leaves `installed_version` empty and the UI says "не установлено"
+        // while the core runs. Read it from the binary once.
+        if load_cfg(app).installed_version.is_empty() {
+            if let Some(version) = probe_core_version(&binary_path()) {
+                remember_core_version(app, &version)?;
+            }
+        }
         return Ok(());
     }
     install_core_locked(app).map(|_| ())
+}
+
+/// `xray -version` prints `Xray 26.11.9 (Xray, Penetrates Everything.) ...`.
+fn probe_core_version(binary: &Path) -> Option<String> {
+    let output = Command::new(binary).arg("-version").output().ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let line = text.lines().next()?.trim();
+    let mut parts = line.split_whitespace();
+    match parts.next() {
+        Some("Xray") => parts.next().map(str::to_string),
+        _ => None,
+    }
 }
 
 pub fn ensure_core(app: &AppHandle) -> Result<(), String> {
@@ -1819,6 +1839,38 @@ fn related_hosts(domain: &str, html: &str) -> Vec<SiteCandidate> {
     hosts
 }
 
+/// Loads the site through the tunnel, retrying while the core comes back up.
+///
+/// Adding a site restarts the tunnel, and the first request can hit the inbound
+/// before it is listening. reqwest's own text for that is only "error sending
+/// request for url (...)"; the chain is unwrapped so the real reason is shown.
+fn fetch_page(client: &reqwest::blocking::Client, domain: &str) -> Result<String, String> {
+    let mut last_error = String::from("неизвестная ошибка");
+    for attempt in 1..=3 {
+        let result = client
+            .get(format!("https://{domain}/"))
+            .send()
+            .map_err(|e| describe_error(&e))
+            .and_then(|response| {
+                if response.status().is_success() {
+                    response.text().map_err(|e| describe_error(&e))
+                } else {
+                    Err(format!("сервер ответил {}", response.status()))
+                }
+            });
+        match result {
+            Ok(html) => return Ok(html),
+            Err(error) => {
+                last_error = error;
+                if attempt < 3 {
+                    std::thread::sleep(Duration::from_millis(700));
+                }
+            }
+        }
+    }
+    Err(format!("Не удалось загрузить {domain}: {last_error}"))
+}
+
 /// Suggests the extra domains a site needs, by loading its page through the
 /// tunnel and looking at what hosts it references.
 pub fn discover_sites(app: &AppHandle, site: &str) -> Result<Vec<SiteCandidate>, String> {
@@ -1839,11 +1891,7 @@ pub fn discover_sites(app: &AppHandle, site: &str) -> Result<Vec<SiteCandidate>,
         .timeout(Duration::from_secs(25))
         .build()
         .map_err(|e| e.to_string())?;
-    let html = client
-        .get(format!("https://{domain}/"))
-        .send()
-        .and_then(|response| response.text())
-        .map_err(|e| format!("Не удалось загрузить {domain}: {e}"))?;
+    let html = fetch_page(&client, &domain)?;
 
     let known: Vec<String> = load_cfg(app)
         .proxy_sites
