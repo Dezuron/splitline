@@ -44,7 +44,6 @@ import {
   importXraySites,
   tgwsRunning,
   toggleXray,
-  toggleXrayAutostart,
   updateXraySiteBases,
   xrayBusy,
   xrayError,
@@ -671,14 +670,9 @@ function pingLabel(ms: number | null): string {
             @keydown.enter="commitPorts"
           />
         </label>
-        <Toggle
-          class="field-wide"
-          label="Подключать VPN вместе с приложением"
-          hint="Ядро поднимается при старте приложения, Telegram продолжает работать без действий"
-          :checked="config?.xray.autostart"
-          :disabled="xrayBusy"
-          @change="toggleXrayAutostart"
-        />
+        <p class="vpn-hint field-wide">
+          VPN включится при следующем запуске, если был включён при выходе.
+        </p>
       </CardContent>
     </Card>
 
