@@ -7,6 +7,7 @@ import type {
   BenchProgress,
   BenchSummary,
   ConfigView,
+  DownloadProgress,
   QuickCheck,
   TgwsNotice,
   TgwsStatus,
@@ -55,6 +56,7 @@ import {
   xrayStatus,
   xrayProfiles,
   xrayLogs,
+  downloads,
   xrayBusy,
   xrayLink,
   xrayError,
@@ -64,6 +66,7 @@ import {
 
 let pollTimer: number | null = null;
 let appUpdateTimer: number | null = null;
+const downloadTimers = new Map<string, number>();
 let lastRefreshError = 0;
 let refreshSeq = 0;
 let unlisteners: Array<() => void> = [];
@@ -206,6 +209,9 @@ export async function initStore() {
     await listen<string>("xray-log", (event) => {
       xrayLogs.value = tgwsLogTail([...xrayLogs.value, event.payload]);
     }),
+    await listen<DownloadProgress>("download-progress", (event) => {
+      applyDownloadProgress(event.payload);
+    }),
   ];
 
   await refreshInternal(false);
@@ -235,12 +241,59 @@ export async function initStore() {
   document.addEventListener("visibilitychange", onVisibilityChange);
 }
 
+/** Keeps the download overlay in sync; a finished entry fades out shortly. */
+function applyDownloadProgress(progress: DownloadProgress) {
+  const existing = downloads.value.find((item) => item.id === progress.id);
+  if (progress.error) {
+    if (existing) {
+      existing.label = progress.label;
+      existing.error = progress.error;
+      existing.done = true;
+    } else {
+      downloads.value.push({ ...progress });
+    }
+    scheduleDownloadRemoval(progress.id, 6000);
+    return;
+  }
+  if (progress.done) {
+    if (existing) {
+      existing.received = progress.received;
+      existing.total = progress.total;
+      existing.done = true;
+    }
+    scheduleDownloadRemoval(progress.id, 900);
+    return;
+  }
+  if (existing) {
+    existing.label = progress.label;
+    existing.received = progress.received;
+    existing.total = progress.total;
+    existing.done = false;
+    existing.error = null;
+  } else {
+    downloads.value.push({ ...progress });
+  }
+}
+
+function scheduleDownloadRemoval(id: string, delay: number) {
+  const previous = downloadTimers.get(id);
+  if (previous !== undefined) clearTimeout(previous);
+  const timer = window.setTimeout(() => {
+    downloadTimers.delete(id);
+    downloads.value = downloads.value.filter((item) => item.id !== id);
+  }, delay);
+  downloadTimers.set(id, timer);
+}
+
 export function disposeStore() {
   stopPolling();
   if (appUpdateTimer !== null) {
     clearTimeout(appUpdateTimer);
     appUpdateTimer = null;
   }
+  for (const timer of downloadTimers.values()) clearTimeout(timer);
+  downloadTimers.clear();
+  downloads.value = [];
   for (const unlisten of unlisteners) unlisten();
   unlisteners = [];
   document.removeEventListener("visibilitychange", onVisibilityChange);

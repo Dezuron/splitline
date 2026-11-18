@@ -6,6 +6,7 @@ import type {
   BenchSummary,
   CandidateResult,
   ConfigView,
+  DownloadProgress,
   QuickCheck,
   TgwsStatus,
   TgwsUpdateInfo,
@@ -53,6 +54,9 @@ export const tgwsProgress = ref<string | null>(null);
 export const xrayStatus = ref<XrayStatus | null>(null);
 export const xrayProfiles = ref<XrayProfile[]>([]);
 export const xrayLogs = ref<string[]>([]);
+
+/** Long downloads in flight; rendered by DownloadOverlay.vue. */
+export const downloads = ref<DownloadProgress[]>([]);
 export const xrayBusy = ref(false);
 export const xrayLink = ref("");
 export const xrayError = ref<string | null>(null);

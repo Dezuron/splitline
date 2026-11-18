@@ -8,6 +8,7 @@ mod generator;
 mod geo;
 mod job;
 mod probe;
+mod progress;
 mod runtime;
 mod strategy;
 mod sys;
@@ -661,14 +662,27 @@ pub fn run() {
             // bypass service is stopped; restore it before doing anything else.
             commands::recover_pending(&app.state::<AppState>());
 
-            // Telegram proxy: start it in the background when the user asked for
-            // it and the binary is already downloaded. A missing binary is not
-            // an error — the Telegram page offers to download it on demand.
+            // One-time migration: the old per-feature autostart flags become the
+            // first session snapshot, so nobody loses what they had enabled.
+            {
+                let state = app.state::<AppState>();
+                let mut cfg = lock_config(&state);
+                if !cfg.session_initialized {
+                    cfg.session_zapret = crate::engine::Engine::is_running();
+                    cfg.xray.session_running = cfg.xray.autostart;
+                    cfg.tgws.session_running = cfg.tgws.autostart;
+                    cfg.session_initialized = true;
+                    let _ = config::save_config(&cfg);
+                }
+            }
+
+            // Telegram proxy: restore the last known state. A missing binary is
+            // not an error — the Telegram page offers to download it on demand.
             {
                 let enabled = {
                     let state = app.state::<AppState>();
                     let cfg = lock_config(&state);
-                    cfg.tgws.autostart
+                    cfg.tgws.session_running
                 };
                 if enabled {
                     let handle = app.handle().clone();
@@ -680,7 +694,7 @@ pub fn run() {
                             let still_enabled = {
                                 let state = handle.state::<AppState>();
                                 let cfg = lock_config(&state);
-                                cfg.tgws.autostart
+                                cfg.tgws.session_running
                             };
                             if still_enabled {
                                 let _ = crate::tgws::start(&handle);
@@ -700,7 +714,7 @@ pub fn run() {
                 let enabled = {
                     let state = app.state::<AppState>();
                     let cfg = lock_config(&state);
-                    cfg.xray.autostart && !cfg.xray.subscription_url.trim().is_empty()
+                    cfg.xray.session_running && !cfg.xray.subscription_url.trim().is_empty()
                 };
                 if enabled {
                     let handle = app.handle().clone();
@@ -709,7 +723,7 @@ pub fn run() {
                             let still_enabled = {
                                 let state = handle.state::<AppState>();
                                 let cfg = lock_config(&state);
-                                cfg.xray.autostart
+                                cfg.xray.session_running
                             };
                             if still_enabled {
                                 let _ = crate::xray::start(&handle);
@@ -719,19 +733,24 @@ pub fn run() {
                 }
             }
 
+            // Restore the bypass if it was running when the app last changed it.
+            // This happens on any launch, not only on Windows autostart, so a
+            // manual start after a crash also brings the chosen strategy back.
+            {
+                let state = app.state::<AppState>();
+                let cfg = lock_config(&state);
+                let last = cfg.last_strategy.clone();
+                let restore = cfg.session_zapret;
+                drop(cfg);
+                if restore && !last.is_empty() && !crate::engine::Engine::is_running() {
+                    let _ = crate::commands::start(state);
+                }
+            }
+
             // On autostart, start hidden
             if is_autostart {
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.hide();
-                }
-                // Start last strategy silently (if the service isn't already running).
-                let state = app.state::<AppState>();
-                let cfg = lock_config(&state);
-                let last = cfg.last_strategy.clone();
-                let autostart_enabled = cfg.autostart;
-                drop(cfg);
-                if autostart_enabled && !last.is_empty() && !crate::engine::Engine::is_running() {
-                    let _ = crate::commands::start(state);
                 }
             } else {
                 // Normal launch: show the window on a visible monitor.
