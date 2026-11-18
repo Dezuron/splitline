@@ -46,6 +46,17 @@ const configFixture: ConfigView = {
     secret: "00112233445566778899aabbccddeeff",
     installed_version: "",
   },
+  xray: {
+    subscription_url: "",
+    selected: 0,
+    socks_port: 17808,
+    http_port: 17809,
+    autostart: false,
+    proxy_sites: [],
+    system_proxy: false,
+    installed_version: "",
+    bases_updated_at: 0,
+  },
 };
 
 describe("themes", () => {

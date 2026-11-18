@@ -12,6 +12,7 @@ import {
   tgwsStatus,
   whatsNew,
   wizardDismissed,
+  xrayStatus,
 } from "./state";
 
 function makeStatus(overrides: Partial<AppStatus> = {}): AppStatus {
@@ -39,6 +40,7 @@ describe("store state", () => {
   beforeEach(() => {
     status.value = null;
     tgwsStatus.value = null;
+    xrayStatus.value = null;
     wizardDismissed.value = false;
     whatsNew.value = null;
   });
@@ -95,6 +97,39 @@ describe("store state", () => {
   it("reports everything off", () => {
     status.value = makeStatus({ runtime_valid: true, running: false });
     expect(statusText.value).toBe("Zapret и Telegram выключены");
+  });
+
+  it("adds the VPN to the status line", () => {
+    status.value = makeStatus({ runtime_valid: true, running: false });
+    xrayStatus.value = {
+      state: "running",
+      pid: 7,
+      last_error: null,
+      installed_version: "25.1.1",
+      binary_present: true,
+      socks_port: 17808,
+      http_port: 17809,
+      selected: 0,
+      profile_name: "Германия",
+      client_connections: 1,
+      system_proxy: true,
+      fetched_at: 0,
+    };
+    expect(statusText.value).toBe("VPN включён");
+
+    tgwsStatus.value = {
+      state: "running",
+      pid: 42,
+      last_error: null,
+      installed_version: "1.11.2-1",
+      binary_present: true,
+      port_conflict: false,
+      client_connections_total: 1,
+    };
+    expect(statusText.value).toBe("Telegram и VPN работают");
+
+    status.value = makeStatus({ runtime_valid: true, running: true });
+    expect(statusText.value).toBe("Zapret, Telegram и VPN работают");
   });
 
   it("shows What's new only after the setup wizard", () => {

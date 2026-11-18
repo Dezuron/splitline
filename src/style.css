@@ -1528,9 +1528,24 @@ body {
   flex: 0 0 auto;
   border-radius: 8px;
   object-fit: cover;
+  /* Same halo the nav icons get on hover, so the mark reads as lit. */
+  filter: drop-shadow(0 0 6px color-mix(in oklab, var(--accent) 55%, transparent));
   box-shadow:
     0 6px 16px rgba(0, 0, 0, 0.35),
     inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* The same logo in two palettes; the theme attribute picks one. */
+.brand-icon-carmine {
+  display: none;
+}
+
+[data-theme="carmine"] .brand-icon-satellite {
+  display: none;
+}
+
+[data-theme="carmine"] .brand-icon-carmine {
+  display: block;
 }
 
 .brand-text {
@@ -2714,29 +2729,6 @@ body {
   }
 }
 
-[data-theme="satellite"] .sidebar-brand {
-  position: relative;
-}
-
-[data-theme="satellite"] .sidebar-brand::after {
-  content: "";
-  position: absolute;
-  left: -6px;
-  top: -6px;
-  width: 46px;
-  height: 46px;
-  border: 1px dashed rgba(87, 215, 255, 0.45);
-  border-radius: 50%;
-  animation: satellite-orbit 14s linear infinite;
-  pointer-events: none;
-}
-
-@keyframes satellite-orbit {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 [data-theme="satellite"] .status-chip,
 [data-theme="satellite"] .chip {
   border-radius: 999px;
@@ -2779,8 +2771,7 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  [data-theme="satellite"] .topbar::after,
-  [data-theme="satellite"] .sidebar-brand::after {
+  [data-theme="satellite"] .topbar::after {
     animation: none;
   }
 }
@@ -2916,7 +2907,12 @@ body {
 /* Each tab bends the icon in its own direction. */
 .nav-item[data-icon="dashboard"]:hover svg,
 .nav-item[data-icon="dashboard"]:focus-visible svg {
-  animation: nav-icon-breathe 1.8s ease-in-out infinite;
+  animation: nav-icon-hop 1.1s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.nav-item[data-icon="vpn"]:hover svg,
+.nav-item[data-icon="vpn"]:focus-visible svg {
+  animation: nav-icon-spark 900ms ease-in-out infinite;
 }
 
 .nav-item[data-icon="zapret"]:hover svg,
@@ -2935,14 +2931,39 @@ body {
   transition-duration: 480ms;
 }
 
-@keyframes nav-icon-breathe {
+/* The dashboard tiles hop in place, like a page settling into view. */
+@keyframes nav-icon-hop {
   0%,
   100% {
-    transform: scale(1.1);
+    transform: scale(1.08) translateY(0);
   }
 
-  50% {
-    transform: scale(1.17) translateY(-1px);
+  40% {
+    transform: scale(1.18) translateY(-2px);
+  }
+
+  70% {
+    transform: scale(1.12) translateY(0);
+  }
+}
+
+/* The VPN bolt crackles: a quick double flick that never quite rests. */
+@keyframes nav-icon-spark {
+  0%,
+  100% {
+    transform: scale(1.08) rotate(0deg);
+  }
+
+  20% {
+    transform: scale(1.2) rotate(-10deg);
+  }
+
+  45% {
+    transform: scale(1.1) rotate(6deg);
+  }
+
+  70% {
+    transform: scale(1.17) rotate(-4deg);
   }
 }
 
@@ -3187,7 +3208,9 @@ body {
 
   .page-enter-active > *,
   .nav-item[data-icon="dashboard"]:hover svg,
-  .nav-item[data-icon="dashboard"]:focus-visible svg {
+  .nav-item[data-icon="dashboard"]:focus-visible svg,
+  .nav-item[data-icon="vpn"]:hover svg,
+  .nav-item[data-icon="vpn"]:focus-visible svg {
     animation: none;
   }
 
@@ -3199,6 +3222,8 @@ body {
   .nav-item[data-icon="zapret"]:focus-visible svg,
   .nav-item[data-icon="telegram"]:hover svg,
   .nav-item[data-icon="telegram"]:focus-visible svg,
+  .nav-item[data-icon="vpn"]:hover svg,
+  .nav-item[data-icon="vpn"]:focus-visible svg,
   .nav-item[data-icon="settings"]:hover svg,
   .nav-item[data-icon="settings"]:focus-visible svg,
   .brand-icon,

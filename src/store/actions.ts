@@ -13,6 +13,11 @@ import type {
   TgwsUpdateInfo,
   UpdateInfo,
   WhatsNew,
+  XrayBasesSummary,
+  XrayProfile,
+  XraySiteBundle,
+  XraySiteCandidate,
+  XrayStatus,
 } from "../types";
 import { confirmAction } from "../lib/confirm";
 import { toast } from "../lib/toast";
@@ -47,6 +52,12 @@ import {
   tgwsBusy,
   tgwsChecking,
   tgwsProgress,
+  xrayStatus,
+  xrayProfiles,
+  xrayLogs,
+  xrayBusy,
+  xrayLink,
+  xrayError,
 } from "./state";
 
 // ---------- polling ----------
@@ -128,6 +139,11 @@ function startPolling() {
     // Do not spawn sc/tasklist while hidden in the tray or during a benchmark.
     if (!document.hidden && !benchRunning.value) {
       void refreshInternal(true);
+      // The VPN banner depends on live SOCKS connections, so the status is
+      // polled too: no event fires when Telegram merely connects.
+      if (xrayStatus.value?.state === "running") {
+        void refreshXray();
+      }
     }
   }, 4000);
 }
@@ -184,10 +200,17 @@ export async function initStore() {
       toast(event.payload.ok ? "success" : "warning", event.payload.message);
       await refreshTgws();
     }),
+    await listen<XrayStatus>("xray-status", (event) => {
+      xrayStatus.value = event.payload;
+    }),
+    await listen<string>("xray-log", (event) => {
+      xrayLogs.value = tgwsLogTail([...xrayLogs.value, event.payload]);
+    }),
   ];
 
   await refreshInternal(false);
   void refreshTgws();
+  void refreshXray();
   // Silent proxy update check on startup, like the app and zapret checks.
   // The backend cache keeps this to one GitHub request per 12 hours.
   void checkTgwsUpdate(true);
@@ -906,4 +929,223 @@ export async function openTgwsLog() {
   } catch (error) {
     toast("error", String(error));
   }
+}
+
+// ---------- VPN (Xray subscription) ----------
+
+/** Loads what the VPN page renders: state, log tail and the Telegram link. */
+export async function refreshXray() {
+  try {
+    const [nextStatus, logs, link] = await Promise.all([
+      invoke<XrayStatus>("get_xray_status"),
+      invoke<string[]>("get_xray_logs"),
+      invoke<string>("get_xray_telegram_link"),
+    ]);
+    xrayStatus.value = nextStatus;
+    xrayLogs.value = tgwsLogTail(logs);
+    xrayLink.value = link;
+  } catch (error) {
+    console.warn("Не удалось обновить состояние VPN", error);
+  }
+}
+
+/** Re-downloads the subscription and refreshes the profile list. */
+export async function refreshXraySubscription(withPing = true) {
+  if (xrayBusy.value) return;
+  xrayBusy.value = true;
+  xrayError.value = null;
+  try {
+    xrayProfiles.value = await invoke<XrayProfile[]>("refresh_xray_subscription", {
+      withPing,
+    });
+    await refreshInternal(true);
+    await refreshXray();
+    toast("success", `Список обновлён: ${xrayProfiles.value.length} профилей.`);
+  } catch (error) {
+    xrayError.value = String(error);
+    toast("error", String(error));
+  } finally {
+    xrayBusy.value = false;
+  }
+}
+
+/** Loads the cached profile list (with optional pings). */
+export async function loadXrayProfiles(withPing = false) {
+  xrayError.value = null;
+  try {
+    xrayProfiles.value = await invoke<XrayProfile[]>("get_xray_profiles", { withPing });
+  } catch (error) {
+    xrayError.value = String(error);
+  }
+}
+
+/** Pings every profile and re-sorts nothing: the UI shows the numbers. */
+export async function pingXrayProfiles() {
+  if (xrayBusy.value) return;
+  xrayBusy.value = true;
+  try {
+    xrayProfiles.value = await invoke<XrayProfile[]>("get_xray_profiles", {
+      withPing: true,
+    });
+  } catch (error) {
+    toast("error", String(error));
+  } finally {
+    xrayBusy.value = false;
+  }
+}
+
+async function setXraySetting<T>(command: string, args: Record<string, unknown>): Promise<T> {
+  try {
+    const saved = await invoke<T>(command, args);
+    await refreshInternal(true);
+    await refreshXray();
+    return saved;
+  } catch (error) {
+    toast("error", String(error));
+    throw error;
+  }
+}
+
+export function setXraySubscription(url: string) {
+  return setXraySetting<string>("set_xray_subscription", { url });
+}
+
+export function selectXrayProfile(index: number) {
+  return setXraySetting<void>("select_xray_profile", { index });
+}
+
+export function setXrayPorts(socksPort: number, httpPort: number) {
+  return setXraySetting<[number, number]>("set_xray_ports", { socksPort, httpPort });
+}
+
+export function toggleXrayAutostart(enabled: boolean) {
+  return setXraySetting<void>("set_xray_autostart", { enabled });
+}
+
+export async function installXrayCore() {
+  if (xrayBusy.value) return;
+  xrayBusy.value = true;
+  try {
+    const version = await invoke<string>("install_xray_core");
+    await refreshXray();
+    toast("success", `Ядро Xray ${version} установлено.`);
+  } catch (error) {
+    toast("error", String(error));
+  } finally {
+    xrayBusy.value = false;
+  }
+}
+
+/** Installs a core archive the user downloaded by hand (blocked networks). */
+export async function installXrayCoreFromFile(path: string) {
+  if (xrayBusy.value) return;
+  xrayBusy.value = true;
+  try {
+    const version = await invoke<string>("install_xray_core_from_file", { path });
+    await refreshXray();
+    toast("success", `Ядро Xray установлено (${version}).`);
+  } catch (error) {
+    toast("error", String(error));
+  } finally {
+    xrayBusy.value = false;
+  }
+}
+
+export async function toggleXray() {
+  if (xrayBusy.value) return;
+  xrayBusy.value = true;
+  try {
+    const running = xrayStatus.value?.state === "running";
+    await invoke(running ? "stop_xray" : "start_xray");
+    await refreshXray();
+    if (!running) {
+      toast("success", "VPN подключён. Нажми «Подключить Telegram».");
+    }
+  } catch (error) {
+    toast("error", String(error));
+    await refreshXray();
+  } finally {
+    xrayBusy.value = false;
+  }
+}
+
+export async function restartXray() {
+  if (xrayBusy.value) return;
+  xrayBusy.value = true;
+  try {
+    await invoke("restart_xray");
+    await refreshXray();
+  } catch (error) {
+    toast("error", String(error));
+  } finally {
+    xrayBusy.value = false;
+  }
+}
+
+export async function openXrayInTelegram() {
+  try {
+    await invoke("open_xray_in_telegram");
+  } catch (error) {
+    toast("error", String(error));
+  }
+}
+
+export async function copyXrayLink() {
+  if (!xrayLink.value) return;
+  try {
+    await invoke("copy_to_clipboard", { text: xrayLink.value });
+    toast("success", "Ссылка скопирована.");
+  } catch (error) {
+    toast("error", String(error));
+  }
+}
+
+/** Replaces the whitelist of sites that must go through the tunnel. */
+export async function setXrayProxySites(sites: string[]) {
+  return setXraySetting<string[]>("set_xray_proxy_sites", { sites });
+}
+
+/** Enables/disables the Windows system proxy (browsers follow the same rules). */
+export async function setXraySystemProxy(enabled: boolean) {
+  return setXraySetting<void>("set_xray_system_proxy", { enabled });
+}
+
+/** Merges a domain list from a text file into the whitelist. */
+export async function importXraySites(path: string) {
+  return setXraySetting<string[]>("import_xray_sites", { path });
+}
+
+/** Writes the whitelist to a text file; returns how many domains were saved. */
+export async function exportXraySites(path: string) {
+  return invoke<number>("export_xray_sites", { path });
+}
+
+/** Ready-made service bundles, one `geosite:` category each. */
+export async function getXraySiteBundles() {
+  return invoke<XraySiteBundle[]>("get_xray_site_bundles");
+}
+
+/** Downloads both community domain lists and merges them into one file. */
+export async function updateXraySiteBases() {
+  if (xrayBusy.value) return null;
+  xrayBusy.value = true;
+  try {
+    const summary = await invoke<XrayBasesSummary>("update_xray_site_bases");
+    await refreshXray();
+    await refreshInternal(true);
+    const restart =
+      xrayStatus.value?.state === "running" ? " Перезапустите VPN, чтобы применить." : "";
+    toast("success", `Базы обновлены: ${summary.categories} категорий.${restart}`);
+    return summary;
+  } catch (error) {
+    toast("error", String(error));
+    return null;
+  } finally {
+    xrayBusy.value = false;
+  }
+}
+
+/** Suggests the extra domains a site needs (CDN, static hosts). */
+export async function discoverXraySites(site: string) {
+  return invoke<XraySiteCandidate[]>("discover_xray_sites", { site });
 }

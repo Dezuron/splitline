@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRouter } from "vue-router";
-import { ArrowUpRight, RefreshCw, Send, ShieldCheck } from "lucide-vue-next";
+import { ArrowUpRight, RefreshCw, Send, ShieldCheck, Zap } from "lucide-vue-next";
 import Button from "../components/ui/button/Button.vue";
 import Card from "../components/ui/card/Card.vue";
 import CardContent from "../components/ui/card/CardContent.vue";
@@ -36,7 +36,10 @@ import {
   tgwsUpdate,
   toggleStart,
   toggleTgws,
+  toggleXray,
   updateInfo,
+  xrayBusy,
+  xrayStatus,
 } from "../store";
 import { tgwsEndpoint, tgwsVersionLabel } from "../lib/tgws";
 import { toast } from "../lib/toast";
@@ -70,6 +73,18 @@ const telegramVersion = computed(() =>
     tgwsStatus.value?.binary_present,
   ),
 );
+const vpnRunning = computed(() => xrayStatus.value?.state === "running");
+const vpnHint = computed(() => {
+  if (!xrayStatus.value) return "Загрузка…";
+  if (!vpnRunning.value) return "VPN выключен";
+  const connections = xrayStatus.value.client_connections ?? 0;
+  return connections > 0
+    ? `Telegram через VPN · соединений: ${connections}`
+    : "VPN подключён, Telegram ещё не переключён";
+});
+const vpnProfile = computed(() => xrayStatus.value?.profile_name || "не выбрана");
+const vpnEndpoint = computed(() => `127.0.0.1:${xrayStatus.value?.socks_port ?? 17808}`);
+
 const telegramHint = computed(() => {
   if (!tgwsRunning.value) return tgwsStateText.value;
   return (tgwsStatus.value?.client_connections_total ?? 0) > 0
@@ -182,6 +197,36 @@ async function checkAllUpdates() {
             @click="router.push('/telegram')"
           >
             Подключение и ключ
+            <ArrowUpRight :size="13" />
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card class="power-card">
+        <CardHeader class="power-head">
+          <div class="power-icon telegram"><Zap :size="19" /></div>
+          <div class="power-heading">
+            <CardTitle>VPN</CardTitle>
+            <CardDescription>{{ vpnHint }}</CardDescription>
+          </div>
+          <Switch
+            :model-value="vpnRunning"
+            :disabled="xrayBusy"
+            aria-label="Включить или выключить VPN"
+            @update:model-value="toggleXray"
+          />
+        </CardHeader>
+        <CardContent class="power-content">
+          <div class="power-meta">
+            <span>Локация</span>
+            <strong>{{ vpnProfile }}</strong>
+          </div>
+          <div class="power-meta">
+            <span>SOCKS5</span>
+            <strong>{{ vpnEndpoint }}</strong>
+          </div>
+          <Button class="power-action" variant="outline" size="sm" @click="router.push('/vpn')">
+            Подписка и локации
             <ArrowUpRight :size="13" />
           </Button>
         </CardContent>
