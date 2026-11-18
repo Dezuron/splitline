@@ -538,7 +538,6 @@ button {
   justify-content: space-between;
   gap: var(--space-3);
   padding: 8px 0;
-  cursor: pointer;
 }
 
 .toggle-row + .toggle-row {
@@ -546,7 +545,6 @@ button {
 }
 
 .toggle-row.disabled {
-  opacity: 0.55;
   cursor: default;
 }
 
@@ -565,45 +563,6 @@ button {
 .toggle-hint {
   color: var(--text-3);
   font-size: 10.5px;
-}
-
-.toggle-row input[type="checkbox"] {
-  appearance: none;
-  width: 36px;
-  height: 20px;
-  flex: 0 0 auto;
-  position: relative;
-  border-radius: 10px;
-  border: 1px solid var(--border-strong);
-  background: var(--surface-2);
-  cursor: pointer;
-  transition:
-    background var(--motion),
-    border-color var(--motion);
-}
-
-.toggle-row input[type="checkbox"]::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--text-3);
-  transition:
-    transform var(--motion),
-    background var(--motion);
-}
-
-.toggle-row input[type="checkbox"]:checked {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.toggle-row input[type="checkbox"]:checked::after {
-  transform: translateX(16px);
-  background: #fff;
 }
 
 /* ---------- Strategy panel ---------- */
