@@ -3,23 +3,13 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { toast } from "../lib/toast";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { XraySiteBundle, XraySiteCandidate } from "../types";
-import {
-  AlertTriangle,
-  Copy,
-  Download,
-  ExternalLink,
-  RefreshCw,
-  RotateCw,
-  Send,
-  Zap,
-} from "lucide-vue-next";
+import { AlertTriangle, Copy, Download, RefreshCw, RotateCw, Send, Zap } from "lucide-vue-next";
 import Card from "../components/ui/card/Card.vue";
 import CardContent from "../components/ui/card/CardContent.vue";
 import CardDescription from "../components/ui/card/CardDescription.vue";
 import CardHeader from "../components/ui/card/CardHeader.vue";
 import CardTitle from "../components/ui/card/CardTitle.vue";
 import Button from "../components/ui/button/Button.vue";
-import Switch from "../components/ui/switch/Switch.vue";
 import Toggle from "../components/Toggle.vue";
 import {
   config,
@@ -200,18 +190,23 @@ function prettySite(site: string): string {
   return site.replace(/^(domain|full|regexp):/, "");
 }
 
-async function saveSites(next: string[]) {
+async function saveSites(next: string[]): Promise<boolean> {
   try {
     await setXrayProxySites(next);
+    return true;
   } catch {
-    /* тост уже показан */
+    // The toast is already shown by the action.
+    return false;
   }
 }
 
 async function addSite() {
   const value = siteDraft.value.trim();
   if (!value) return;
-  await saveSites([...sites.value, value]);
+  // Only look for extra domains once the site is really in the list: a failed
+  // save already explains itself, and a discovery error on top of it reads as
+  // "the site was not added".
+  if (!(await saveSites([...sites.value, value]))) return;
   siteDraft.value = "";
   // A site is rarely one host: ask the backend what else it loads.
   void discover(value);
@@ -260,7 +255,8 @@ async function discover(site: string) {
     }));
   } catch (error) {
     suggestions.value = [];
-    toast("warning", String(error));
+    // The site itself is already saved; only the extra-domain lookup failed.
+    toast("warning", `Сайт добавлен, но проверить дополнительные домены не удалось: ${error}`);
   } finally {
     discovering.value = false;
   }
@@ -297,6 +293,25 @@ async function toggleSystemProxy(enabled: boolean) {
   } catch {
     /* тост уже показан */
   }
+}
+
+/** Browsers are covered only while the tunnel is up and the proxy is applied. */
+const sitesEnabled = computed(() => running.value && !!config.value?.xray.system_proxy);
+
+/** The tunnel is shared: it carries Telegram and, when enabled, the browsers. */
+async function setTunnel(enabled: boolean) {
+  if (enabled === running.value) return;
+  await toggleXray();
+}
+
+/** Turning sites on also raises the tunnel, so the switch is never dead. */
+async function setSites(enabled: boolean) {
+  if (enabled === sitesEnabled.value) return;
+  if (enabled && !running.value) {
+    await toggleXray();
+    if (!running.value) return;
+  }
+  await toggleSystemProxy(enabled);
 }
 
 /** Installs a downloaded `Xray-windows-64.zip`: the way out when GitHub is blocked. */
@@ -346,15 +361,25 @@ function pingLabel(ms: number | null): string {
             :class="{ ok: running, warn: transitioning, danger: xrayStatus?.state === 'error' }"
             aria-hidden="true"
           ></span>
-          <Switch
-            :model-value="running"
-            :disabled="xrayBusy || transitioning || !canConnect"
-            aria-label="Подключить или отключить VPN"
-            @update:model-value="toggleXray"
-          />
         </div>
       </CardHeader>
       <CardContent class="vpn-hero-content">
+        <div class="vpn-toggles">
+          <Toggle
+            label="VPN для Telegram"
+            hint="Туннель для Telegram: один раз подтвердите прокси в приложении Telegram"
+            :checked="running"
+            :disabled="xrayBusy || transitioning || !canConnect"
+            @change="setTunnel"
+          />
+          <Toggle
+            label="VPN для сайтов"
+            hint="Браузеры через системный прокси. Включение поднимет туннель, если он выключен"
+            :checked="sitesEnabled"
+            :disabled="xrayBusy || transitioning || !canConnect"
+            @change="setSites"
+          />
+        </div>
         <div class="vpn-meta">
           <div>
             <span>Локация</span>
@@ -366,7 +391,10 @@ function pingLabel(ms: number | null): string {
           </div>
           <div>
             <span>Ядро</span>
-            <strong>{{ xrayStatus?.installed_version || "не установлено" }}</strong>
+            <strong>{{
+              xrayStatus?.installed_version ||
+              (xrayStatus?.binary_present ? "установлено" : "не установлено")
+            }}</strong>
           </div>
         </div>
 
@@ -381,6 +409,23 @@ function pingLabel(ms: number | null): string {
             @keydown.enter="commitUrl"
           />
         </label>
+
+        <div class="field field-wide">
+          <span class="field-label">Ссылка для Telegram</span>
+          <div class="vpn-link-row">
+            <code class="vpn-link">{{ xrayLink || "ссылка появится после запуска" }}</code>
+            <Button
+              variant="outline"
+              size="icon"
+              title="Копировать ссылку"
+              aria-label="Копировать ссылку для Telegram"
+              :disabled="!xrayLink"
+              @click="copyXrayLink"
+            >
+              <Copy :size="15" />
+            </Button>
+          </div>
+        </div>
 
         <div class="vpn-actions">
           <Button
@@ -463,6 +508,18 @@ function pingLabel(ms: number | null): string {
       </CardContent>
     </Card>
 
+    <Card v-if="running && !config?.xray.system_proxy" class="vpn-card vpn-hint-card">
+      <div class="vpn-hint-icon"><Zap :size="18" /></div>
+      <div class="vpn-hint-text">
+        <strong>Браузеры идут мимо VPN</strong>
+        <span>
+          VPN включён, но системный прокси выключен — Chrome и другие браузеры открывают сайты
+          напрямую. Включите «VPN для сайтов» выше, иначе заблокированные сайты не откроются.
+        </span>
+      </div>
+      <Button size="sm" :disabled="xrayBusy" @click="toggleSystemProxy(true)">Включить</Button>
+    </Card>
+
     <Card v-if="running && !telegramConnected" class="vpn-card vpn-hint-card">
       <div class="vpn-hint-icon"><Send :size="18" /></div>
       <div v-if="telegramOnProxy" class="vpn-hint-text">
@@ -493,42 +550,6 @@ function pingLabel(ms: number | null): string {
           }}».
         </span>
       </div>
-    </Card>
-
-    <Card class="vpn-card">
-      <CardHeader>
-        <CardTitle>Telegram и браузеры</CardTitle>
-        <CardDescription>
-          Переключатель ниже включает VPN для браузеров. Telegram подключается отдельно, один раз —
-          дальше он ходит через VPN сам.
-        </CardDescription>
-      </CardHeader>
-      <CardContent class="vpn-connect">
-        <Toggle
-          label="Браузеры через VPN"
-          hint="Включается только при работающем VPN; при выходе из приложения настройки возвращаются"
-          :checked="config?.xray.system_proxy"
-          :disabled="xrayBusy || !running"
-          @change="toggleSystemProxy"
-        />
-        <div class="vpn-link-row">
-          <code class="vpn-link">{{ xrayLink || "ссылка появится после запуска" }}</code>
-          <Button
-            variant="outline"
-            size="icon"
-            title="Копировать ссылку"
-            aria-label="Копировать ссылку"
-            :disabled="!xrayLink"
-            @click="copyXrayLink"
-          >
-            <Copy :size="15" />
-          </Button>
-        </div>
-        <Button class="vpn-wide" variant="outline" :disabled="!running" @click="openXrayInTelegram">
-          <ExternalLink :size="15" />
-          Открыть в Telegram
-        </Button>
-      </CardContent>
     </Card>
 
     <Card class="vpn-card">
@@ -768,6 +789,13 @@ function pingLabel(ms: number | null): string {
   gap: 12px;
 }
 
+/* Two explicit switches at the top: the tunnel and the browsers. */
+.vpn-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .vpn-meta {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -805,12 +833,6 @@ function pingLabel(ms: number | null): string {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-
-/* Full-width action inside the Telegram card. */
-.vpn-wide {
-  width: 100%;
-  justify-content: center;
 }
 
 .vpn-hint-card {
@@ -892,12 +914,6 @@ function pingLabel(ms: number | null): string {
   color: var(--danger);
   font-size: 12px;
   line-height: 1.45;
-}
-
-.vpn-connect {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
 }
 
 .vpn-link-row {
