@@ -373,7 +373,10 @@ function pingLabel(ms: number | null): string {
           </div>
           <div>
             <span>Ядро</span>
-            <strong>{{ xrayStatus?.installed_version || "не установлено" }}</strong>
+            <strong>{{
+              xrayStatus?.installed_version ||
+              (xrayStatus?.binary_present ? "установлено" : "не установлено")
+            }}</strong>
           </div>
         </div>
 
@@ -468,6 +471,18 @@ function pingLabel(ms: number | null): string {
           </div>
         </div>
       </CardContent>
+    </Card>
+
+    <Card v-if="running && !config?.xray.system_proxy" class="vpn-card vpn-hint-card">
+      <div class="vpn-hint-icon"><Zap :size="18" /></div>
+      <div class="vpn-hint-text">
+        <strong>Браузеры идут мимо VPN</strong>
+        <span>
+          VPN включён, но системный прокси выключен — Chrome и другие браузеры открывают сайты
+          напрямую. Включите «Браузеры через VPN» ниже, иначе заблокированные сайты не откроются.
+        </span>
+      </div>
+      <Button size="sm" :disabled="xrayBusy" @click="toggleSystemProxy(true)">Включить</Button>
     </Card>
 
     <Card v-if="running && !telegramConnected" class="vpn-card vpn-hint-card">
