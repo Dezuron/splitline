@@ -85,7 +85,7 @@ pub async fn set_xray_ports(
 #[tauri::command]
 pub async fn set_xray_autostart(app: tauri::AppHandle, enabled: bool) -> AppResult<()> {
     tauri::async_runtime::spawn_blocking(move || {
-        xray::update_settings(&app, move |cfg| cfg.autostart = enabled)
+        xray::update_settings_hot(&app, move |cfg| cfg.autostart = enabled)
     })
     .await
     .map_err(|e| e.to_string())??;

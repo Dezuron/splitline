@@ -354,8 +354,10 @@ fn decode_text_stub(text: &str) -> String {
         .chars()
         .filter(|c| !c.is_control())
         .collect::<String>();
-    if printable.len() > 400 {
-        return format!("{}…", &printable[..400]);
+    if printable.chars().count() > 400 {
+        // Byte slicing can land inside a Cyrillic character and panic.
+        let head: String = printable.chars().take(400).collect();
+        return format!("{head}…");
     }
     printable
 }
@@ -514,6 +516,9 @@ pub fn profiles(app: &AppHandle, with_ping: bool) -> Result<Vec<XrayProfile>, St
 struct GhAsset {
     name: String,
     browser_download_url: String,
+    /// `sha256:<hex>` published by GitHub for every uploaded asset.
+    #[serde(default)]
+    digest: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -640,7 +645,15 @@ fn remember_core_version(app: &AppHandle, version: &str) -> Result<(), String> {
 pub fn install_core(app: &AppHandle) -> Result<String, String> {
     let state = app.state::<AppState>();
     let _guard = lock(&state.xray.op);
+    install_core_locked(app)
+}
 
+/// Installs the core without taking the operation lock.
+///
+/// `start_locked` already holds it, and `std::sync::Mutex` is not reentrant:
+/// locking twice on the first run (when the binary is missing) deadlocked the
+/// command until the app was killed.
+fn install_core_locked(app: &AppHandle) -> Result<String, String> {
     let release = fetch_core_release()?;
     let asset = release
         .assets
@@ -654,6 +667,13 @@ pub fn install_core(app: &AppHandle) -> Result<String, String> {
         .map_err(|e| format!("Не удалось скачать Xray: {e}"))?;
     if size < 1024 * 1024 {
         return Err("Скачанный архив Xray подозрительно мал.".into());
+    }
+    // The core runs elevated, so a tampered archive must never be unpacked.
+    if let Some(digest) = asset.digest.as_deref() {
+        if let Err(error) = crate::runtime::verify_digest(&archive, digest) {
+            let _ = fs::remove_file(&archive);
+            return Err(format!("Проверка архива Xray не прошла: {error}"));
+        }
     }
     unpack_core(&archive, true)?;
 
@@ -749,11 +769,17 @@ fn check_category(code: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn ensure_core(app: &AppHandle) -> Result<(), String> {
+fn ensure_core_locked(app: &AppHandle) -> Result<(), String> {
     if binary_path().exists() {
         return Ok(());
     }
-    install_core(app).map(|_| ())
+    install_core_locked(app).map(|_| ())
+}
+
+pub fn ensure_core(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let _guard = lock(&state.xray.op);
+    ensure_core_locked(app)
 }
 
 // ---------- config generation ----------
@@ -765,7 +791,18 @@ pub fn ensure_core(app: &AppHandle) -> Result<(), String> {
 /// tunnel" policy, and rewriting them would silently change behaviour.
 /// Telegram ranges: the client talks to these addresses directly, so they stay
 /// on the tunnel side even though the whitelist sends everything else direct.
-const TELEGRAM_CIDRS: &[&str] = &["91.105.192.0/23", "149.154.160.0/20", "185.76.151.0/24"];
+const TELEGRAM_CIDRS: &[&str] = &[
+    "91.105.192.0/23",
+    "91.108.4.0/22",
+    "91.108.8.0/22",
+    "91.108.12.0/22",
+    "91.108.16.0/22",
+    "91.108.20.0/22",
+    "91.108.56.0/22",
+    "95.161.76.0/23",
+    "149.154.160.0/20",
+    "185.76.151.0/24",
+];
 
 /// Local networks and the router itself never belong on the tunnel.
 const DIRECT_CIDRS: &[&str] = &[
@@ -1001,7 +1038,7 @@ fn proxy_target(cfg: &Value) -> (String, String) {
 /// Replaces the provider's policy (which tunnels a long list of social networks
 /// and keeps RU domains direct) with an explicit one: only `proxy_sites` and
 /// Telegram leave through the tunnel, everything else is direct.
-pub fn build_rules(proxy_sites: &[String], target: (&str, &str)) -> Value {
+pub fn build_rules(proxy_sites: &[String], target: (&str, &str), direct: &str) -> Value {
     let list = |items: &[&str]| Value::Array(items.iter().map(|item| Value::from(*item)).collect());
     let with_route = |extra: Value| {
         let mut rule = extra;
@@ -1009,8 +1046,8 @@ pub fn build_rules(proxy_sites: &[String], target: (&str, &str)) -> Value {
         rule
     };
     let mut rules = vec![
-        json!({ "ip": list(DIRECT_CIDRS), "outboundTag": "direct" }),
-        json!({ "ip": ["77.88.8.8"], "outboundTag": "direct" }),
+        json!({ "ip": list(DIRECT_CIDRS), "outboundTag": direct }),
+        json!({ "ip": ["77.88.8.8"], "outboundTag": direct }),
         with_route(json!({ "ip": list(TELEGRAM_CIDRS) })),
     ];
     let domains: Vec<Value> = proxy_sites
@@ -1022,8 +1059,31 @@ pub fn build_rules(proxy_sites: &[String], target: (&str, &str)) -> Value {
         rules.push(with_route(json!({ "domain": domains })));
     }
     // Nothing else gets out through the tunnel.
-    rules.push(json!({ "network": "tcp,udp", "outboundTag": "direct" }));
+    rules.push(json!({ "network": "tcp,udp", "outboundTag": direct }));
     Value::Array(rules)
+}
+
+/// Tag of the outbound that sends traffic straight out.
+///
+/// A hardcoded `direct` breaks on subscriptions that name it differently:
+/// Xray only logs a warning and falls back to the first outbound, which is the
+/// tunnel — the whitelist would silently turn into "everything through VPN".
+fn direct_tag(value: &Value) -> Option<String> {
+    let outbounds = value.get("outbounds").and_then(Value::as_array)?;
+    if outbounds
+        .iter()
+        .any(|outbound| outbound.get("tag").and_then(Value::as_str) == Some("direct"))
+    {
+        return Some("direct".into());
+    }
+    outbounds
+        .iter()
+        .find(|outbound| {
+            outbound.get("protocol").and_then(Value::as_str) == Some("freedom")
+                && outbound.get("tag").and_then(Value::as_str).is_some()
+        })
+        .and_then(|outbound| outbound.get("tag").and_then(Value::as_str))
+        .map(str::to_string)
 }
 
 fn write_config(app: &AppHandle, index: usize) -> Result<PathBuf, String> {
@@ -1067,11 +1127,26 @@ fn write_config(app: &AppHandle, index: usize) -> Result<PathBuf, String> {
     // The routing rules are the "which sites go through the tunnel" policy, so
     // they are replaced by our whitelist instead of the provider's list.
     let (kind, tag) = proxy_target(&value);
+    let Some(direct) = direct_tag(&value) else {
+        return Err(
+            "В подписке нет outbound'а для прямого трафика — белый список работать не будет."
+                .into(),
+        );
+    };
+    // A provider without routing (or with a routing script) would ignore our
+    // rules entirely; both cases are normalised here.
+    if !value.get("routing").map(Value::is_object).unwrap_or(false) {
+        value["routing"] = json!({});
+    }
     if let Some(routing) = value.get_mut("routing").and_then(Value::as_object_mut) {
+        routing.remove("script");
         routing.insert(
             "rules".into(),
-            build_rules(&ports.proxy_sites, (&kind, &tag)),
+            build_rules(&ports.proxy_sites, (&kind, &tag), &direct),
         );
+        // `AsIs`: the domain is already known from the HTTP/SOCKS request, and
+        // `IPOnDemand` resolved it again for every new host before routing.
+        routing.insert("domainStrategy".into(), Value::from("AsIs"));
     }
 
     let path = config_path();
@@ -1156,10 +1231,15 @@ pub fn validate_port(port: u16) -> Result<u16, String> {
     }
 }
 
-fn kill_image() {
-    let _ = sys::command("taskkill.exe")
-        .args(["/F", "/IM", BINARY_IMAGE])
-        .status();
+/// PID listening on a loopback port, when netstat can tell.
+fn port_owner(port: u16) -> Option<u32> {
+    let output = sys::command("netstat.exe").args(["-ano"]).output().ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let local = format!("127.0.0.1:{port}");
+    text.lines()
+        .filter(|line| line.contains("LISTENING") && line.contains(&local))
+        .filter_map(|line| line.split_whitespace().last())
+        .find_map(|pid| pid.parse().ok())
 }
 
 pub fn start(app: &AppHandle) -> Result<(), String> {
@@ -1189,21 +1269,25 @@ fn start_locked(app: &AppHandle) -> Result<(), String> {
             return Ok(());
         }
     }
-    ensure_core(app)?;
+    ensure_core_locked(app)?;
 
     let cfg = load_cfg(app);
     if !port_available(cfg.socks_port) || !port_available(cfg.http_port) {
-        kill_image();
-        std::thread::sleep(Duration::from_millis(500));
-        if !port_available(cfg.socks_port) || !port_available(cfg.http_port) {
-            return Err(mark_failed(
-                app,
-                format!(
-                    "Порты {} и {} заняты. Укажите другие в параметрах.",
-                    cfg.socks_port, cfg.http_port
-                ),
-            ));
-        }
+        let busy = if !port_available(cfg.socks_port) {
+            cfg.socks_port
+        } else {
+            cfg.http_port
+        };
+        // Never kill by image name: another client's xray.exe may be running.
+        let owner = port_owner(busy)
+            .map(|pid| format!(" (PID {pid})"))
+            .unwrap_or_default();
+        return Err(mark_failed(
+            app,
+            format!(
+                "Порт {busy} занят{owner}. Закройте программу, которая его держит, или выберите другой порт."
+            ),
+        ));
     }
 
     set_status(app, |s| {
@@ -1308,6 +1392,9 @@ fn spawn_watcher(app: AppHandle, pid: u32) {
         } else {
             format!("Xray завершился неожиданно ({code}). {tail}")
         };
+        // The inbound is gone: a leftover WinINET proxy would break every browser.
+        restore_system_proxy();
+        set_status(&app, |s| s.system_proxy = false);
         mark_failed(&app, message);
         return;
     });
@@ -1446,10 +1533,12 @@ pub fn apply_system_proxy(port: u16) -> Result<(), String> {
             proxy_server: wininet_read("ProxyServer"),
             auto_config: wininet_read("AutoConfigURL"),
         };
-        if let Ok(text) = serde_json::to_string(&backup) {
-            let _ = fs::create_dir_all(dir());
-            let _ = fs::write(backup_path(), text);
-        }
+        // Without a backup the original settings cannot be restored, so never
+        // touch the registry until it is safely on disk.
+        let text = serde_json::to_string(&backup).map_err(|e| e.to_string())?;
+        fs::create_dir_all(dir()).map_err(|e| e.to_string())?;
+        fs::write(backup_path(), text)
+            .map_err(|e| format!("Не удалось сохранить настройки прокси перед изменением: {e}"))?;
     }
     wininet_write("ProxyEnable", "REG_DWORD", "1")?;
     wininet_write("ProxyServer", "REG_SZ", &format!("127.0.0.1:{port}"))?;
@@ -1466,27 +1555,37 @@ pub fn restore_system_proxy() {
         let _ = fs::remove_file(backup_path());
         return;
     };
-    match backup.proxy_enable.as_deref() {
-        Some("0x1") | Some("1") => {
-            let _ = wininet_write("ProxyEnable", "REG_DWORD", "1");
+    let mut errors: Vec<String> = Vec::new();
+    let mut apply = |result: Result<(), String>| {
+        if let Err(error) = result {
+            errors.push(error);
         }
-        _ => {
-            let _ = wininet_write("ProxyEnable", "REG_DWORD", "0");
-        }
-    }
+    };
+    apply(match backup.proxy_enable.as_deref() {
+        Some("0x1") | Some("1") => wininet_write("ProxyEnable", "REG_DWORD", "1"),
+        _ => wininet_write("ProxyEnable", "REG_DWORD", "0"),
+    });
     match backup.proxy_server.as_deref() {
         Some(server) if !server.is_empty() => {
-            let _ = wininet_write("ProxyServer", "REG_SZ", server);
+            apply(wininet_write("ProxyServer", "REG_SZ", server));
         }
         _ => wininet_delete("ProxyServer"),
     }
     match backup.auto_config.as_deref() {
         Some(pac) if !pac.is_empty() => {
-            let _ = wininet_write("AutoConfigURL", "REG_SZ", pac);
+            apply(wininet_write("AutoConfigURL", "REG_SZ", pac));
         }
         _ => wininet_delete("AutoConfigURL"),
     }
-    let _ = fs::remove_file(backup_path());
+    if errors.is_empty() {
+        let _ = fs::remove_file(backup_path());
+    } else {
+        // Keep the backup: the next start or exit will retry with it.
+        append_log_file(&format!(
+            "Не удалось восстановить системный прокси: {}",
+            errors.join("; ")
+        ));
+    }
 }
 
 pub fn system_proxy_enabled() -> bool {
@@ -1503,11 +1602,26 @@ pub fn update_settings(
     let _guard = lock(&state.xray.op);
     save_cfg(app, patch)?;
     if status(app).state == XrayState::Running {
+        // `stop_locked` restores WinINET before the inbound disappears and
+        // `start_locked` applies it again, so browsers never point at a dead
+        // port while the core is restarting.
         stop_locked(app)?;
         std::thread::sleep(Duration::from_millis(300));
         start_locked(app)?;
     }
     Ok(())
+}
+
+/// Saves a setting that the running core does not read (autostart, UI flags).
+///
+/// Restarting the tunnel for these dropped every connection for nothing.
+pub fn update_settings_hot(
+    app: &AppHandle,
+    patch: impl FnOnce(&mut config::XrayConfig),
+) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let _guard = lock(&state.xray.op);
+    save_cfg(app, patch)
 }
 
 pub fn select_profile(app: &AppHandle, index: usize) -> Result<(), String> {
@@ -1823,6 +1937,35 @@ mod tests {
     }
 
     #[test]
+    fn direct_outbound_is_found_by_tag() {
+        assert_eq!(direct_tag(&sample()).as_deref(), Some("direct"));
+    }
+
+    #[test]
+    fn direct_outbound_falls_back_to_any_freedom() {
+        let cfg = json!({
+            "outbounds": [
+                { "tag": "proxy", "protocol": "vless" },
+                { "tag": "freedom-out", "protocol": "freedom" }
+            ]
+        });
+        assert_eq!(direct_tag(&cfg).as_deref(), Some("freedom-out"));
+    }
+
+    #[test]
+    fn direct_outbound_is_missing_without_freedom() {
+        let cfg = json!({ "outbounds": [{ "tag": "proxy", "protocol": "vless" }] });
+        assert_eq!(direct_tag(&cfg), None);
+    }
+
+    #[test]
+    fn telegram_ranges_cover_media_dcs() {
+        for cidr in ["91.108.4.0/22", "91.108.56.0/22", "95.161.76.0/23"] {
+            assert!(TELEGRAM_CIDRS.contains(&cidr), "missing {cidr}");
+        }
+    }
+
+    #[test]
     fn telegram_link_is_a_socks_link() {
         assert_eq!(
             telegram_link(17808),
@@ -1870,21 +2013,12 @@ mod tests {
     }
 
     #[test]
-    fn bundles_name_the_category_that_covers_their_cdn() {
-        let bundles = site_bundles();
-        assert_eq!(bundles.len(), 13);
-        let instagram = bundles
-            .iter()
-            .find(|bundle| bundle.name == "Instagram")
-            .expect("instagram bundle");
-        // `instagram` alone misses fbcdn.net; `meta` covers it.
-        assert_eq!(instagram.category, "meta");
-        assert!(bundles.iter().all(|bundle| bundle.category != ""));
-    }
-
-    #[test]
     fn whitelist_routing_keeps_telegram_and_sends_the_rest_direct() {
-        let rules = build_rules(&["example.com".into()], ("balancerTag", "auto-sni"));
+        let rules = build_rules(
+            &["example.com".into()],
+            ("balancerTag", "auto-sni"),
+            "direct",
+        );
         let list = rules.as_array().expect("rules");
         // Last rule is the default: everything else stays outside the tunnel.
         let last = list.last().expect("default rule");
@@ -1924,6 +2058,7 @@ mod tests {
     #[test]
     fn bundles_cover_the_services_the_user_picked() {
         let bundles = site_bundles();
+        assert_eq!(bundles.len(), 13);
         let names: Vec<&str> = bundles.iter().map(|bundle| bundle.name.as_str()).collect();
         for expected in [
             "Instagram",
@@ -2000,7 +2135,7 @@ mod tests {
 
     #[test]
     fn empty_whitelist_has_no_domain_rule() {
-        let rules = build_rules(&[], ("balancerTag", "auto-sni"));
+        let rules = build_rules(&[], ("balancerTag", "auto-sni"), "direct");
         let list = rules.as_array().expect("rules");
         assert!(!list.iter().any(|rule| rule.get("domain").is_some()));
         assert_eq!(list.last().expect("default")["outboundTag"], "direct");
