@@ -1001,6 +1001,8 @@ function pingLabel(ms: number | null): string {
   gap: 6px;
   max-height: 380px;
   overflow-y: auto;
+  /* Same gap between the rows and their scrollbar as the strategy list. */
+  padding-right: 4px;
 }
 
 .vpn-site-row {

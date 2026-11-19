@@ -1,3 +1,4 @@
+use crate::registry;
 use crate::sys;
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
@@ -6,6 +7,7 @@ use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
+use windows_sys::Win32::System::Registry::HKEY_LOCAL_MACHINE;
 use windows_sys::Win32::System::Services::{
     CloseServiceHandle, ControlService, OpenSCManagerW, OpenServiceW, QueryServiceStatusEx,
     SC_MANAGER_CONNECT, SC_STATUS_PROCESS_INFO, SERVICE_CONTROL_STOP, SERVICE_QUERY_STATUS,
@@ -155,6 +157,11 @@ impl Engine {
     /// Install winws as the `zapret` Windows service (start=auto) and start it.
     /// Mirrors service.bat: cleanup -> sc create -> sc start -> remember strategy.
     pub fn install(exe: &str, args: &[String], strategy: &str) -> Result<(), String> {
+        // `sc.exe`/`netsh.exe` cannot start while the session is ending: the
+        // loader fails with 0xc0000142 and Windows shows an error dialog.
+        if sys::session_ending() {
+            return Err("Windows завершает сеанс — обход включится при следующем входе.".into());
+        }
         // Clean any previous service/driver state first.
         let _ = Self::remove();
 
@@ -203,19 +210,13 @@ impl Engine {
         }
 
         // Remember the strategy in the service registry key (like the bat).
-        let _ = Self::run(
-            "reg.exe",
-            &[
-                "add",
-                r"HKLM\System\CurrentControlSet\Services\zapret",
-                "/v",
-                "zapret-discord-youtube",
-                "/t",
-                "REG_SZ",
-                "/d",
-                strategy,
-                "/f",
-            ],
+        // Written directly: spawning `reg.exe` during logon/logoff fails with
+        // 0xc0000142, the same way `sc.exe` and `taskkill.exe` did.
+        let _ = registry::write_string(
+            HKEY_LOCAL_MACHINE,
+            r"System\CurrentControlSet\Services\zapret",
+            "zapret-discord-youtube",
+            strategy,
         );
         Ok(())
     }

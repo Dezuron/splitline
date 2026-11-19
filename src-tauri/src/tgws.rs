@@ -774,6 +774,9 @@ pub fn restart(app: &AppHandle) -> Result<(), String> {
 }
 
 fn start_locked(app: &AppHandle) -> Result<(), String> {
+    if sys::session_ending() {
+        return Err("Windows завершает сеанс — прокси запустится при следующем входе.".into());
+    }
     {
         let state = app.state::<AppState>();
         if lock(&state.tgws.child).is_some() {
