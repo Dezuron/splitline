@@ -30,6 +30,14 @@ pub fn command(name: &str) -> Command {
     cmd
 }
 
+/// Nonzero while Windows is shutting the session down. Starting a process at
+/// that point fails inside the loader (`0xc0000142`) and the user sees
+/// "… — Ошибка приложения"; callers must skip the launch instead.
+pub fn session_ending() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_SHUTTINGDOWN};
+    unsafe { GetSystemMetrics(SM_SHUTTINGDOWN) != 0 }
+}
+
 /// Opens a folder/file with the Windows shell (`ShellExecuteW`). Unlike spawning
 /// `explorer.exe`, this does not depend on the tool's location and is the
 /// supported way to hand a path to the shell.
@@ -116,6 +124,13 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_is_not_ending_during_a_normal_run() {
+        // `SM_SHUTTINGDOWN` must be wired to the right metric; a wrong constant
+        // would silently block every start.
+        assert!(!session_ending());
+    }
 
     #[test]
     fn system_tools_are_absolute() {

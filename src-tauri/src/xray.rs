@@ -11,6 +11,7 @@
 use crate::config;
 use crate::geo;
 use crate::lock_config;
+use crate::registry;
 use crate::sys;
 use crate::AppState;
 use serde::{Deserialize, Serialize};
@@ -269,19 +270,13 @@ fn mark_failed(app: &AppHandle, message: impl Into<String>) -> String {
 /// that is exactly what a stock client sends, so reusing it keeps this machine's
 /// existing device slot instead of consuming a new one.
 pub fn machine_hwid() -> Option<String> {
-    let output = sys::command("reg.exe")
-        .args([
-            "query",
-            r"HKLM\SOFTWARE\Microsoft\Cryptography",
-            "/v",
-            "MachineGuid",
-        ])
-        .output()
-        .ok()?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    text.split_whitespace()
-        .find(|part| part.len() == 36 && part.matches('-').count() == 4)
-        .map(|part| part.to_string())
+    let guid = registry::read_string(
+        windows_sys::Win32::System::Registry::HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Microsoft\Cryptography",
+        "MachineGuid",
+    )?;
+    let guid = guid.trim();
+    (guid.len() == 36 && guid.matches('-').count() == 4).then(|| guid.to_string())
 }
 
 // ---------- subscription ----------
@@ -1320,6 +1315,9 @@ pub fn restart(app: &AppHandle) -> Result<(), String> {
 }
 
 fn start_locked(app: &AppHandle) -> Result<(), String> {
+    if sys::session_ending() {
+        return Err("Windows завершает сеанс — VPN запустится при следующем входе.".into());
+    }
     {
         let state = app.state::<AppState>();
         if lock(&state.xray.child).is_some() {
@@ -1518,7 +1516,7 @@ pub fn stop_on_exit(app: &AppHandle) {
 
 // ---------- Windows system proxy ----------
 
-const WININET_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+const WININET_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
 
 /// What WinINET had before we touched it, so the user's setup can be restored.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1535,51 +1533,52 @@ fn backup_path() -> PathBuf {
     dir().join("system-proxy-backup.json")
 }
 
-fn wininet_read(name: &str) -> Option<String> {
-    let output = sys::command("reg.exe")
-        .args(["query", WININET_KEY, "/v", name])
-        .output()
-        .ok()?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    // `    ProxyEnable    REG_DWORD    0x1`
-    let line = text.lines().find(|line| line.contains(name))?;
-    line.split_whitespace()
-        .last()
-        .map(|value| value.to_string())
+fn wininet_read_string(name: &str) -> Option<String> {
+    registry::read_string(
+        windows_sys::Win32::System::Registry::HKEY_CURRENT_USER,
+        WININET_KEY,
+        name,
+    )
 }
 
-fn wininet_write(name: &str, kind: &str, value: &str) -> Result<(), String> {
-    let status = sys::command("reg.exe")
-        .args([
-            "add",
-            WININET_KEY,
-            "/v",
-            name,
-            "/t",
-            kind,
-            "/d",
-            value,
-            "/f",
-        ])
-        .status()
-        .map_err(|e| e.to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("Не удалось записать {name} в реестр."))
-    }
+fn wininet_read_dword(name: &str) -> Option<u32> {
+    registry::read_dword(
+        windows_sys::Win32::System::Registry::HKEY_CURRENT_USER,
+        WININET_KEY,
+        name,
+    )
+}
+
+fn wininet_write_dword(name: &str, value: u32) -> Result<(), String> {
+    registry::write_dword(
+        windows_sys::Win32::System::Registry::HKEY_CURRENT_USER,
+        WININET_KEY,
+        name,
+        value,
+    )
+    .map_err(|e| format!("{name}: {e}"))
+}
+
+fn wininet_write_string(name: &str, value: &str) -> Result<(), String> {
+    registry::write_string(
+        windows_sys::Win32::System::Registry::HKEY_CURRENT_USER,
+        WININET_KEY,
+        name,
+        value,
+    )
+    .map_err(|e| format!("{name}: {e}"))
 }
 
 fn wininet_delete(name: &str) {
-    let _ = sys::command("reg.exe")
-        .args(["delete", WININET_KEY, "/v", name, "/f"])
-        .status();
+    registry::delete_value(
+        windows_sys::Win32::System::Registry::HKEY_CURRENT_USER,
+        WININET_KEY,
+        name,
+    );
 }
 
 fn system_proxy_active() -> bool {
-    wininet_read("ProxyEnable")
-        .map(|value| value != "0x0" && value != "0")
-        .unwrap_or(false)
+    wininet_read_dword("ProxyEnable").is_some_and(|value| value != 0)
 }
 
 /// Points WinINET at the local HTTP inbound.
@@ -1589,9 +1588,9 @@ fn system_proxy_active() -> bool {
 pub fn apply_system_proxy(port: u16) -> Result<(), String> {
     if !backup_path().exists() {
         let backup = SystemProxyBackup {
-            proxy_enable: wininet_read("ProxyEnable"),
-            proxy_server: wininet_read("ProxyServer"),
-            auto_config: wininet_read("AutoConfigURL"),
+            proxy_enable: wininet_read_dword("ProxyEnable").map(|value| value.to_string()),
+            proxy_server: wininet_read_string("ProxyServer"),
+            auto_config: wininet_read_string("AutoConfigURL"),
         };
         // Without a backup the original settings cannot be restored, so never
         // touch the registry until it is safely on disk.
@@ -1600,8 +1599,8 @@ pub fn apply_system_proxy(port: u16) -> Result<(), String> {
         fs::write(backup_path(), text)
             .map_err(|e| format!("Не удалось сохранить настройки прокси перед изменением: {e}"))?;
     }
-    wininet_write("ProxyEnable", "REG_DWORD", "1")?;
-    wininet_write("ProxyServer", "REG_SZ", &format!("127.0.0.1:{port}"))?;
+    wininet_write_dword("ProxyEnable", 1)?;
+    wininet_write_string("ProxyServer", &format!("127.0.0.1:{port}"))?;
     wininet_delete("AutoConfigURL");
     Ok(())
 }
@@ -1622,18 +1621,18 @@ pub fn restore_system_proxy() {
         }
     };
     apply(match backup.proxy_enable.as_deref() {
-        Some("0x1") | Some("1") => wininet_write("ProxyEnable", "REG_DWORD", "1"),
-        _ => wininet_write("ProxyEnable", "REG_DWORD", "0"),
+        Some("0x1") | Some("1") => wininet_write_dword("ProxyEnable", 1),
+        _ => wininet_write_dword("ProxyEnable", 0),
     });
     match backup.proxy_server.as_deref() {
         Some(server) if !server.is_empty() => {
-            apply(wininet_write("ProxyServer", "REG_SZ", server));
+            apply(wininet_write_string("ProxyServer", server));
         }
         _ => wininet_delete("ProxyServer"),
     }
     match backup.auto_config.as_deref() {
         Some(pac) if !pac.is_empty() => {
-            apply(wininet_write("AutoConfigURL", "REG_SZ", pac));
+            apply(wininet_write_string("AutoConfigURL", pac));
         }
         _ => wininet_delete("AutoConfigURL"),
     }

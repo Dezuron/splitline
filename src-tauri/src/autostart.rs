@@ -1,19 +1,11 @@
+use crate::registry;
 use crate::sys;
 use std::process::Stdio;
+use windows_sys::Win32::System::Registry::HKEY_CURRENT_USER;
 
-const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const VALUE_NAME: &str = "zapret-ui";
 const OLD_TASK_NAME: &str = "zapret-ui";
-
-fn reg_ok(args: &[&str]) -> std::io::Result<bool> {
-    let status = sys::command("reg.exe")
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()?;
-    Ok(status.success())
-}
 
 /// Remove the old scheduled-task autostart mechanism (migration to the Run key).
 fn remove_old_scheduled_task() {
@@ -32,17 +24,14 @@ fn run_value(exe: &str) -> String {
 
 /// Register autostart via the HKCU Run key, so the app shows up in the
 /// Task Manager "Startup apps" list (same mechanism as other portable apps).
+///
+/// The registry is written directly instead of spawning `reg.exe`: a child
+/// process started during logon or logoff fails with 0xc0000142.
 pub fn install(exe: &str) -> Result<(), String> {
     remove_old_scheduled_task();
 
-    let value = run_value(exe);
-    let ok = reg_ok(&[
-        "add", RUN_KEY, "/v", VALUE_NAME, "/t", "REG_SZ", "/d", &value, "/f",
-    ])
-    .map_err(|e| format!("reg add: {e}"))?;
-    if !ok {
-        return Err("Не удалось включить автозапуск.".into());
-    }
+    registry::write_string(HKEY_CURRENT_USER, RUN_KEY, VALUE_NAME, &run_value(exe))
+        .map_err(|e| format!("Run key: {e}"))?;
 
     if is_installed() {
         Ok(())
@@ -53,7 +42,7 @@ pub fn install(exe: &str) -> Result<(), String> {
 
 pub fn remove() -> Result<(), String> {
     remove_old_scheduled_task();
-    let _ = reg_ok(&["delete", RUN_KEY, "/v", VALUE_NAME, "/f"]);
+    registry::delete_value(HKEY_CURRENT_USER, RUN_KEY, VALUE_NAME);
     if is_installed() {
         Err("Не удалось отключить автозапуск: запись Run осталась.".into())
     } else {
@@ -62,47 +51,30 @@ pub fn remove() -> Result<(), String> {
 }
 
 pub fn is_installed() -> bool {
-    let out = sys::command("reg.exe")
-        .args(["query", RUN_KEY, "/v", VALUE_NAME])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    matches!(out, Ok(status) if status.success())
+    registered_exe().is_some()
 }
 
 /// The executable path currently registered in the Run key, if any.
 pub fn registered_exe() -> Option<String> {
-    let out = sys::command("reg.exe")
-        .args(["query", RUN_KEY, "/v", VALUE_NAME])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    parse_registered_exe(&String::from_utf8_lossy(&out.stdout))
+    let data = registry::read_string(HKEY_CURRENT_USER, RUN_KEY, VALUE_NAME)?;
+    parse_run_value(&data)
 }
 
-/// Extract the exe path from a `reg query` output sample.
-fn parse_registered_exe(text: &str) -> Option<String> {
-    for line in text.lines() {
-        if line.contains(VALUE_NAME) && line.contains("REG_SZ") {
-            let data = line.split("REG_SZ").nth(1)?.trim();
-            if let Some(stripped) = data.strip_prefix('"') {
-                return stripped.split('"').next().map(|s| s.to_string());
-            }
-            return data.split_whitespace().next().map(|s| s.to_string());
-        }
+/// Extract the exe path from a Run value such as `"C:\Apps\app.exe" --autostart`.
+fn parse_run_value(data: &str) -> Option<String> {
+    let data = data.trim();
+    if data.is_empty() {
+        return None;
     }
-    None
+    if let Some(stripped) = data.strip_prefix('"') {
+        return stripped.split('"').next().map(|s| s.to_string());
+    }
+    data.split_whitespace().next().map(|s| s.to_string())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_registered_exe, run_value};
+    use super::{parse_run_value, run_value};
 
     #[test]
     fn run_value_quotes_exe_and_flag() {
@@ -111,19 +83,24 @@ mod tests {
     }
 
     #[test]
-    fn parse_command_extracts_path() {
-        let sample = r#"
-HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
-    zapret-ui    REG_SZ    "C:\Users\Test\IdeaProjects\zapret-ui\zapret-ui.exe" --autostart
-"#;
+    fn parse_run_value_extracts_path() {
+        let sample = r#""C:\Users\Test\IdeaProjects\zapret-ui\zapret-ui.exe" --autostart"#;
         assert_eq!(
-            parse_registered_exe(sample).as_deref(),
+            parse_run_value(sample).as_deref(),
             Some(r"C:\Users\Test\IdeaProjects\zapret-ui\zapret-ui.exe")
         );
     }
 
     #[test]
-    fn parse_command_none_when_missing() {
-        assert_eq!(parse_registered_exe("no value here"), None);
+    fn parse_run_value_handles_an_unquoted_path() {
+        assert_eq!(
+            parse_run_value(r"C:\Apps\zapret-ui.exe --autostart").as_deref(),
+            Some(r"C:\Apps\zapret-ui.exe")
+        );
+    }
+
+    #[test]
+    fn parse_run_value_none_when_empty() {
+        assert_eq!(parse_run_value("   "), None);
     }
 }
