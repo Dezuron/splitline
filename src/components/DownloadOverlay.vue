@@ -83,7 +83,7 @@ function sizeText(bytes: number): string {
 .download-label {
   overflow: hidden;
   color: var(--text);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -93,7 +93,7 @@ function sizeText(bytes: number): string {
   flex: 0 0 auto;
   color: var(--text-3);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 
 .download-track {
@@ -134,13 +134,13 @@ function sizeText(bytes: number): string {
   margin-top: 5px;
   color: var(--text-3);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .download-error {
   margin-top: 6px;
   color: var(--danger);
-  font-size: 10.5px;
+  font-size: 11.5px;
   line-height: 1.35;
 }
 </style>

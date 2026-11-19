@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRouter } from "vue-router";
-import { ArrowUpRight, RefreshCw, Send, ShieldCheck, Zap } from "lucide-vue-next";
+import { ArrowUpRight, Send, ShieldCheck, Zap } from "lucide-vue-next";
 import Button from "../components/ui/button/Button.vue";
 import Card from "../components/ui/card/Card.vue";
 import CardContent from "../components/ui/card/CardContent.vue";
@@ -11,23 +11,19 @@ import CardTitle from "../components/ui/card/CardTitle.vue";
 import Switch from "../components/ui/switch/Switch.vue";
 import {
   appUpdate,
-  appVersion,
-  applyAppUpdate,
-  applyTgwsUpdate,
-  applyUpdate,
   benchDate,
   benchSummary,
   benchRunning,
   busy,
-  checkAppUpdate,
-  checkTgwsUpdate,
-  checkUpdate,
+  checkAllUpdates,
   checkingAppUpdate,
   checkingUpdate,
   config,
   running,
   runtimeReady,
   status,
+  statusText,
+  statusTone,
   tgwsBusy,
   tgwsChecking,
   tgwsRunning,
@@ -41,8 +37,7 @@ import {
   xrayBusy,
   xrayStatus,
 } from "../store";
-import { tgwsEndpoint, tgwsVersionLabel } from "../lib/tgws";
-import { toast } from "../lib/toast";
+import { tgwsEndpoint } from "../lib/tgws";
 
 const router = useRouter();
 
@@ -64,23 +59,33 @@ const checkingAllUpdates = computed(
   () => checkingAppUpdate.value || checkingUpdate.value || tgwsChecking.value,
 );
 
+const updatesAvailable = computed(
+  () => [appHasUpdate.value, zapretHasUpdate.value, tgwsHasUpdate.value].filter(Boolean).length,
+);
+const updatesLabel = computed(() => {
+  const count = updatesAvailable.value;
+  if (!count) return "Обновлений нет";
+  return count === 1 ? "Доступно 1 обновление" : `Доступно обновлений: ${count}`;
+});
+
+const vpnRunning = computed(() => xrayStatus.value?.state === "running");
+const activeServices = computed(
+  () =>
+    [runtimeReady.value && running.value, tgwsRunning.value, vpnRunning.value].filter(Boolean)
+      .length,
+);
+const heroHint = computed(() =>
+  activeServices.value ? `Активно сервисов: ${activeServices.value} из 3` : "Все сервисы выключены",
+);
+
 const telegramEndpoint = computed(() =>
   tgwsEndpoint(config.value?.tgws.host, config.value?.tgws.port),
 );
-const telegramVersion = computed(() =>
-  tgwsVersionLabel(
-    config.value?.tgws.installed_version || tgwsStatus.value?.installed_version,
-    tgwsStatus.value?.binary_present,
-  ),
-);
-const vpnRunning = computed(() => xrayStatus.value?.state === "running");
 const vpnHint = computed(() => {
   if (!xrayStatus.value) return "Загрузка…";
   if (!vpnRunning.value) return "VPN выключен";
   const connections = xrayStatus.value.client_connections ?? 0;
-  return connections > 0
-    ? `Telegram через VPN · соединений: ${connections}`
-    : "VPN подключён, Telegram ещё не переключён";
+  return connections > 0 ? "Telegram через VPN" : "VPN подключён";
 });
 const vpnProfile = computed(() => xrayStatus.value?.profile_name || "не выбрана");
 const vpnEndpoint = computed(() => `127.0.0.1:${xrayStatus.value?.socks_port ?? 17808}`);
@@ -91,36 +96,28 @@ const telegramHint = computed(() => {
     ? "Прокси включён"
     : "Прокси включён · Telegram не подключён";
 });
-
-async function checkAllUpdates() {
-  if (checkingAllUpdates.value || benchRunning.value) return;
-  const results = await Promise.all([
-    checkAppUpdate(true),
-    checkUpdate(true),
-    checkTgwsUpdate(true, true),
-  ]);
-  if (results.some((ok) => !ok)) {
-    toast("warning", "Не удалось проверить все обновления — проверьте сеть.");
-    return;
-  }
-
-  const updates: string[] = [];
-  if (appUpdate.value?.available) updates.push(`приложение ${appUpdate.value.latest}`);
-  if (updateInfo.value?.update_available) {
-    updates.push(`flowseal-zapret ${updateInfo.value.latest}`);
-  }
-  if (tgwsUpdate.value?.has_update && tgwsUpdate.value.latest) {
-    updates.push(`Telegram-прокси ${tgwsUpdate.value.latest}`);
-  }
-  toast(
-    updates.length ? "success" : "info",
-    updates.length ? `Доступны обновления: ${updates.join(", ")}.` : "Обновлений нет.",
-  );
-}
 </script>
 
 <template>
   <div class="main-page">
+    <Card class="home-hero">
+      <div class="home-hero-content">
+        <span class="status-dot" :class="statusTone" aria-hidden="true"></span>
+        <div class="home-hero-text">
+          <strong>{{ statusText }}</strong>
+          <span class="muted">{{ heroHint }}</span>
+        </div>
+        <Button
+          v-if="updatesAvailable"
+          variant="secondary"
+          size="sm"
+          @click="router.push('/settings')"
+        >
+          {{ updatesLabel }}
+        </Button>
+      </div>
+    </Card>
+
     <div class="power-grid">
       <Card class="power-card">
         <CardHeader class="power-head">
@@ -141,18 +138,14 @@ async function checkAllUpdates() {
             <span>Стратегия</span>
             <strong>{{ status?.current_strategy || "не выбрана" }}</strong>
           </div>
-          <div class="power-meta">
-            <span>Версия</span>
-            <strong>{{ status?.installed_version || "не установлена" }}</strong>
-          </div>
           <Button
             v-if="!runtimeReady"
             class="power-action"
             variant="secondary"
             size="sm"
-            @click="router.push('/settings')"
+            @click="router.push('/zapret')"
           >
-            Настроить Zapret
+            Установить Zapret
           </Button>
           <Button
             v-else
@@ -185,10 +178,6 @@ async function checkAllUpdates() {
           <div class="power-meta">
             <span>Адрес</span>
             <strong>{{ telegramEndpoint }}</strong>
-          </div>
-          <div class="power-meta">
-            <span>Версия</span>
-            <strong>{{ telegramVersion }}</strong>
           </div>
           <Button
             class="power-action"
@@ -233,136 +222,38 @@ async function checkAllUpdates() {
       </Card>
     </div>
 
-    <Card class="updates-card">
-      <CardHeader class="updates-head">
-        <div>
+    <div class="home-rows">
+      <Card class="home-row">
+        <div class="home-row-main">
           <span class="eyebrow">Обновления</span>
-          <CardTitle>Версии и обновления</CardTitle>
+          <strong>{{ updatesLabel }}</strong>
         </div>
-        <button
-          class="update-orbit"
-          :class="{ loading: checkingAllUpdates }"
-          type="button"
-          aria-label="Проверить обновления приложения и flowseal-zapret"
-          title="Проверить обновления приложения и flowseal-zapret"
-          :disabled="checkingAllUpdates || benchRunning"
-          @click="checkAllUpdates"
-        >
-          <RefreshCw :size="17" />
-        </button>
-      </CardHeader>
-      <CardContent class="updates-content">
-        <div class="update-row">
-          <div>
-            <span class="update-name">Приложение</span>
-            <strong class="update-version">{{ appVersion || "—" }}</strong>
-          </div>
-          <div class="update-actions">
-            <span v-if="appHasUpdate" class="update-available"
-              >Доступно {{ appUpdate?.latest }}</span
-            >
-            <button
-              v-if="appHasUpdate"
-              class="btn small primary"
-              type="button"
-              :disabled="busy || benchRunning || !appUpdate?.can_auto_update"
-              @click="applyAppUpdate"
-            >
-              Обновить
-            </button>
-            <button
-              v-else
-              class="btn small"
-              type="button"
-              :disabled="checkingAppUpdate || benchRunning"
-              @click="checkAppUpdate(false)"
-            >
-              {{ checkingAppUpdate ? "Проверка…" : "Проверить" }}
-            </button>
-          </div>
+        <div class="home-row-actions">
+          <Button
+            variant="outline"
+            size="sm"
+            :disabled="checkingAllUpdates || benchRunning"
+            @click="checkAllUpdates"
+          >
+            {{ checkingAllUpdates ? "Проверка…" : "Проверить" }}
+          </Button>
+          <Button variant="ghost" size="sm" @click="router.push('/settings')">Настройки</Button>
         </div>
+      </Card>
 
-        <div class="update-row">
-          <div>
-            <span class="update-name">flowseal-zapret</span>
-            <strong class="update-version">{{
-              status?.installed_version || "не установлен"
-            }}</strong>
-          </div>
-          <div class="update-actions">
-            <span v-if="zapretHasUpdate" class="update-available">
-              Доступно {{ updateInfo?.latest }}
-            </span>
-            <button
-              v-if="zapretHasUpdate"
-              class="btn small primary"
-              type="button"
-              :disabled="busy || benchRunning"
-              @click="applyUpdate"
-            >
-              Обновить
-            </button>
-            <button
-              v-else
-              class="btn small"
-              type="button"
-              :disabled="checkingUpdate || benchRunning"
-              @click="checkUpdate(false)"
-            >
-              {{ checkingUpdate ? "Проверка…" : "Проверить" }}
-            </button>
-          </div>
-        </div>
-
-        <div class="update-row">
-          <div>
-            <span class="update-name">Telegram WS-прокси</span>
-            <strong class="update-version">{{ telegramVersion }}</strong>
-          </div>
-          <div class="update-actions">
-            <span v-if="tgwsHasUpdate" class="update-available">
-              Доступно {{ tgwsUpdate?.latest }}
-            </span>
-            <button
-              v-if="tgwsHasUpdate"
-              class="btn small primary"
-              type="button"
-              :disabled="tgwsBusy"
-              @click="applyTgwsUpdate"
-            >
-              Обновить
-            </button>
-            <button
-              v-else
-              class="btn small"
-              type="button"
-              :disabled="tgwsChecking"
-              @click="checkTgwsUpdate(false, true)"
-            >
-              {{ tgwsChecking ? "Проверка…" : "Проверить" }}
-            </button>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-
-    <Card v-if="benchSummary" class="last-check-card">
-      <CardContent class="last-check-content">
-        <div>
+      <Card v-if="benchSummary" class="home-row">
+        <div class="home-row-main">
           <span class="eyebrow">Последняя проверка</span>
           <strong>{{ benchSummary.best || "Без победителя" }}</strong>
         </div>
-        <div class="last-check-stats">
-          <span
-            >Балл <strong>{{ bestScore ?? "—" }}</strong></span
-          >
-          <span>{{ benchDate }}</span>
+        <div class="home-row-actions">
+          <span class="muted">Балл {{ bestScore ?? "—" }} · {{ benchDate }}</span>
+          <Button variant="ghost" size="sm" @click="router.push('/zapret')">
+            К стратегиям
+            <ArrowUpRight :size="13" />
+          </Button>
         </div>
-        <button class="btn small" type="button" @click="router.push('/zapret')">
-          К стратегиям
-          <ArrowUpRight :size="13" />
-        </button>
-      </CardContent>
-    </Card>
+      </Card>
+    </div>
   </div>
 </template>

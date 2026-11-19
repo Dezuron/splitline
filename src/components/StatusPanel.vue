@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import Panel from "./Panel.vue";
+import Button from "./ui/button/Button.vue";
 import {
   applyStrategy,
   benchRunning,
@@ -19,7 +20,7 @@ import {
 </script>
 
 <template>
-  <Panel title="Подключение">
+  <Panel title="Подключение" class="status-panel">
     <div class="status-line">
       <span class="status-dot" :class="statusTone" aria-hidden="true"></span>
       <div class="status-line-text">
@@ -43,29 +44,30 @@ import {
       <span class="field-label">Выбрано</span>
       <div class="selected-row">
         <span class="field-value" :title="selected">{{ selected }}</span>
-        <button class="btn small primary" :disabled="busy || benchRunning" @click="applyStrategy()">
+        <Button size="sm" :disabled="busy || benchRunning" @click="applyStrategy()">
           Применить
-        </button>
+        </Button>
       </div>
     </div>
 
-    <button
-      class="btn big"
-      :class="running ? 'danger' : 'primary'"
+    <Button
+      class="w-full"
+      size="lg"
+      :variant="running ? 'destructive' : 'default'"
       :disabled="busy || !runtimeReady || benchRunning"
       @click="toggleStart"
     >
       {{ starting ? "Подождите…" : running ? "Остановить обход" : "Запустить обход" }}
-    </button>
+    </Button>
 
     <div v-if="!runtimeReady" class="onboarding">
       <p class="onboarding-title">Нужен flowseal-zapret</p>
       <p class="muted">
         Около 10 МБ с GitHub: скачается, распакуется и сразу будет готов к запуску.
       </p>
-      <button class="btn primary" :disabled="busy" @click="installRuntime">
+      <Button :disabled="busy" @click="installRuntime">
         {{ busy ? "Установка…" : "Скачать и установить" }}
-      </button>
+      </Button>
       <div v-if="updateProgress" class="muted">{{ updateProgress }}</div>
     </div>
 

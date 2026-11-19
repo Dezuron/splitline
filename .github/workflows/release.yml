@@ -104,7 +104,7 @@ jobs:
             Add-Content $env:GITHUB_OUTPUT "should_release=true"
           }
 
-      - name: Build Tauri app (portable exe + NSIS)
+      - name: Build Tauri app (portable exe)
         run: npm run tauri build
 
       - name: Collect release artifacts
@@ -133,10 +133,6 @@ jobs:
             "LICENSE",
             "THIRD_PARTY_NOTICES.md"
           ) -DestinationPath "$stage/Splitline_${version}_x64_portable.zip" -Force
-
-          $setup = Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe" | Select-Object -First 1
-          if (-not $setup) { throw "NSIS installer was not produced" }
-          Copy-Item $setup.FullName "$stage/Splitline_${version}_x64-setup.exe"
 
           # No SHA256SUMS.txt: GitHub publishes a `sha256:<hex>` digest for every
           # uploaded asset, and the updater verifies that digest (updater.rs).

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import Panel from "./Panel.vue";
+import Button from "./ui/button/Button.vue";
 import StrategyRow from "./StrategyRow.vue";
 import { hostStatusLabel } from "../lib/labels";
 import {
@@ -48,22 +49,25 @@ import {
       <div class="tool-group">
         <span class="tool-label">Проверка</span>
         <div class="tool-row">
-          <button
-            class="btn small"
+          <Button
+            variant="secondary"
+            size="sm"
             :disabled="benchBusy || !runtimeReady"
             title="Проверить активную стратегию без остановки обхода"
             @click="quickCheck"
           >
             Текущая
-          </button>
-          <button
-            class="btn small primary"
+          </Button>
+          <Button
+            size="sm"
             :disabled="benchBusy || !runtimeReady"
             @click="runBench(includeGenerated)"
           >
             Все стратегии
-          </button>
-          <button v-if="benchRunning" class="btn small" @click="cancelBench">Отмена</button>
+          </Button>
+          <Button v-if="benchRunning" variant="secondary" size="sm" @click="cancelBench">
+            Отмена
+          </Button>
         </div>
       </div>
 
@@ -81,9 +85,14 @@ import {
             :disabled="benchRunning"
             aria-label="Количество новых стратегий"
           />
-          <button class="btn small" :disabled="benchBusy || !runtimeReady" @click="runSearch">
+          <Button
+            variant="secondary"
+            size="sm"
+            :disabled="benchBusy || !runtimeReady"
+            @click="runSearch"
+          >
             Подобрать
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -145,7 +154,6 @@ import {
 
     <div v-if="benchSummary?.results.length" class="result-meta">
       <span>Проверено {{ benchDate }} · {{ benchHostCount }} хостов</span>
-      <span class="legend">D — Discord · Y — YouTube · C — контрольные</span>
     </div>
 
     <TransitionGroup
@@ -180,14 +188,15 @@ import {
       <div v-if="generatedRows.length" key="__group-experimental__" class="list-subhead">
         <span>Экспериментальные</span>
         <span class="list-subhead-line" aria-hidden="true"></span>
-        <button
-          class="btn small"
+        <Button
+          variant="secondary"
+          size="sm"
           :disabled="busy || benchRunning"
           title="Удалить все экспериментальные стратегии, кроме активной"
           @click="deleteAllGenerated"
         >
           Удалить все
-        </button>
+        </Button>
       </div>
       <StrategyRow
         v-for="row in generatedRows"

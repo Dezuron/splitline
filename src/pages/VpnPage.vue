@@ -3,7 +3,16 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { toast } from "../lib/toast";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { XraySiteBundle, XraySiteCandidate } from "../types";
-import { AlertTriangle, Copy, Download, RefreshCw, RotateCw, Send, Zap } from "lucide-vue-next";
+import {
+  AlertTriangle,
+  Check,
+  Copy,
+  Download,
+  RefreshCw,
+  RotateCw,
+  Send,
+  Zap,
+} from "lucide-vue-next";
 import Card from "../components/ui/card/Card.vue";
 import CardContent from "../components/ui/card/CardContent.vue";
 import CardDescription from "../components/ui/card/CardDescription.vue";
@@ -52,6 +61,7 @@ const groupPick = ref("");
 const suggestions = ref<(XraySiteCandidate & { checked: boolean })[]>([]);
 const suggestionFor = ref("");
 const discovering = ref(false);
+const basesBusy = ref(false);
 const logsOpen = ref(false);
 const logBox = ref<HTMLElement | null>(null);
 
@@ -236,9 +246,15 @@ async function addSelectedGroup() {
 
 /** Reloads the merged domain lists, then refreshes the bundle list. */
 async function refreshBases() {
-  const summary = await updateXraySiteBases();
-  if (summary) {
-    siteBundles.value = await getXraySiteBundles();
+  if (basesBusy.value) return;
+  basesBusy.value = true;
+  try {
+    const summary = await updateXraySiteBases();
+    if (summary) {
+      siteBundles.value = await getXraySiteBundles();
+    }
+  } finally {
+    basesBusy.value = false;
   }
 }
 
@@ -496,10 +512,20 @@ function pingLabel(ms: number | null): string {
               type="button"
               class="vpn-row"
               :class="{ selected: profile.index === (xrayStatus?.selected ?? -1) }"
+              :aria-pressed="profile.index === (xrayStatus?.selected ?? -1)"
               :disabled="xrayBusy"
               @click="pick(profile.index)"
             >
-              <span class="vpn-row-name">{{ profile.name }}</span>
+              <span class="vpn-row-name">
+                <Check
+                  v-if="profile.index === (xrayStatus?.selected ?? -1)"
+                  class="vpn-row-check"
+                  :size="14"
+                  :stroke-width="2.6"
+                  aria-hidden="true"
+                />
+                {{ profile.name }}
+              </span>
               <span class="vpn-row-scheme">{{ profile.scheme }}</span>
               <span class="vpn-row-ping">{{ pingLabel(profile.ping_ms) }}</span>
             </button>
@@ -553,7 +579,7 @@ function pingLabel(ms: number | null): string {
     </Card>
 
     <Card class="vpn-card">
-      <CardHeader class="vpn-log-head">
+      <CardHeader>
         <div>
           <CardTitle>Сайты через VPN</CardTitle>
           <CardDescription v-if="basesDate">
@@ -563,27 +589,35 @@ function pingLabel(ms: number | null): string {
             Наборы работают после загрузки баз — нажмите «Обновить базы».
           </CardDescription>
         </div>
-        <Button variant="outline" size="sm" :disabled="xrayBusy" @click="refreshBases">
-          <RefreshCw :size="14" />
-          {{ xrayBusy ? "Обновляю…" : "Обновить базы" }}
-        </Button>
       </CardHeader>
       <CardContent class="vpn-fields">
-        <div v-if="siteBundles.length" class="vpn-bundle-row field-wide">
-          <span class="vpn-groups-label">Готовый набор:</span>
-          <select v-model="groupPick" class="vpn-input vpn-select" :disabled="xrayBusy">
-            <option value="">— выберите —</option>
-            <option
-              v-for="bundle in siteBundles"
-              :key="bundle.category"
-              :value="bundle.name"
-              :disabled="!bundle.available"
-            >
-              {{ bundle.name }} · {{ bundle.available ? bundle.domains : "нет в базах" }}
-            </option>
-          </select>
-          <Button size="sm" :disabled="xrayBusy || !groupPick" @click="addSelectedGroup">
-            Добавить
+        <div class="vpn-bundle-row field-wide">
+          <template v-if="siteBundles.length">
+            <span class="vpn-groups-label">Готовый набор:</span>
+            <select v-model="groupPick" class="vpn-input vpn-select" :disabled="xrayBusy">
+              <option value="">— выберите —</option>
+              <option
+                v-for="bundle in siteBundles"
+                :key="bundle.category"
+                :value="bundle.name"
+                :disabled="!bundle.available"
+              >
+                {{ bundle.name }} · {{ bundle.available ? bundle.domains : "нет в базах" }}
+              </option>
+            </select>
+            <Button size="sm" :disabled="xrayBusy || !groupPick" @click="addSelectedGroup">
+              Добавить
+            </Button>
+          </template>
+          <Button
+            variant="outline"
+            size="sm"
+            class="vpn-bases-btn"
+            :disabled="xrayBusy || basesBusy"
+            @click="refreshBases"
+          >
+            <RefreshCw :size="14" />
+            {{ basesBusy ? "Обновляю…" : "Обновить базы" }}
           </Button>
         </div>
         <p v-if="selectedBundle?.note" class="vpn-hint field-wide">{{ selectedBundle.note }}</p>
@@ -660,56 +694,57 @@ function pingLabel(ms: number | null): string {
     </Card>
 
     <Card class="vpn-card">
-      <CardHeader>
-        <CardTitle>Параметры</CardTitle>
-        <CardDescription>
-          Порты локального прокси, к которому подключается Telegram. Смена перезапускает VPN.
-        </CardDescription>
-      </CardHeader>
-      <CardContent class="vpn-fields">
-        <label class="field">
-          <span class="field-label">SOCKS5 порт</span>
-          <input
-            v-model.number="socksDraft"
-            class="vpn-input"
-            type="number"
-            min="1024"
-            max="65535"
-            @change="commitPorts"
-            @keydown.enter="commitPorts"
-          />
-        </label>
-        <label class="field">
-          <span class="field-label">HTTP порт</span>
-          <input
-            v-model.number="httpDraft"
-            class="vpn-input"
-            type="number"
-            min="1024"
-            max="65535"
-            @change="commitPorts"
-            @keydown.enter="commitPorts"
-          />
-        </label>
-        <p class="vpn-hint field-wide">
-          VPN включится при следующем запуске, если был включён при выходе.
-        </p>
-      </CardContent>
-    </Card>
+      <details class="vpn-advanced">
+        <summary>
+          <span>Дополнительно</span>
+          <span class="muted">Порты, ядро и логи</span>
+        </summary>
+        <div class="vpn-advanced-body">
+          <div class="vpn-fields">
+            <label class="field">
+              <span class="field-label">SOCKS5 порт</span>
+              <input
+                v-model.number="socksDraft"
+                class="vpn-input"
+                type="number"
+                min="1024"
+                max="65535"
+                @change="commitPorts"
+                @keydown.enter="commitPorts"
+              />
+            </label>
+            <label class="field">
+              <span class="field-label">HTTP порт</span>
+              <input
+                v-model.number="httpDraft"
+                class="vpn-input"
+                type="number"
+                min="1024"
+                max="65535"
+                @change="commitPorts"
+                @keydown.enter="commitPorts"
+              />
+            </label>
+            <p class="vpn-hint field-wide">
+              Порты локального прокси, к которому подключается Telegram. Смена перезапускает VPN.
+              VPN включится при следующем запуске, если был включён при выходе.
+            </p>
+          </div>
 
-    <Card class="vpn-card">
-      <CardHeader class="vpn-log-head">
-        <div>
-          <CardTitle>Логи</CardTitle>
-          <CardDescription>Последние {{ xrayLogs.length }} строк от ядра Xray</CardDescription>
+          <div class="vpn-log-head">
+            <div>
+              <span class="field-label">Логи</span>
+              <span class="muted">Последние {{ xrayLogs.length }} строк от ядра Xray</span>
+            </div>
+            <Button variant="ghost" size="sm" @click="logsOpen = !logsOpen">
+              {{ logsOpen ? "Свернуть" : "Показать" }}
+            </Button>
+          </div>
+          <pre v-if="logsOpen" ref="logBox" class="vpn-log">{{
+            logText || "Пока пусто — подключите VPN."
+          }}</pre>
         </div>
-        <Button variant="ghost" size="sm" @click="logsOpen = !logsOpen">
-          {{ logsOpen ? "Свернуть" : "Показать" }}
-        </Button>
-      </CardHeader>
-      <CardContent v-if="logsOpen">
-        <pre ref="logBox" class="vpn-log">{{ logText || "Пока пусто — подключите VPN." }}</pre>
-      </CardContent>
+      </details>
     </Card>
   </div>
 </template>
@@ -813,10 +848,10 @@ function pingLabel(ms: number | null): string {
 .vpn-meta span {
   display: block;
   color: var(--text-3);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .vpn-meta strong {
@@ -824,7 +859,7 @@ function pingLabel(ms: number | null): string {
   overflow: hidden;
   color: var(--text);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -876,23 +911,23 @@ function pingLabel(ms: number | null): string {
 }
 
 .vpn-hint-text strong {
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
 
 .vpn-hint-text span {
   color: var(--text-2);
-  font-size: 11.5px;
+  font-size: 12.5px;
   line-height: 1.45;
 }
 
 .vpn-hint-text code {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 
 .vpn-hint {
   color: var(--text-3);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -900,7 +935,7 @@ function pingLabel(ms: number | null): string {
 .vpn-hint strong {
   color: var(--text-2);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 
 .vpn-error {
@@ -932,7 +967,7 @@ function pingLabel(ms: number | null): string {
   background: var(--muted);
   color: var(--text-2);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -948,25 +983,25 @@ function pingLabel(ms: number | null): string {
 
 .vpn-input {
   width: 100%;
-  height: 34px;
-  padding: 0 10px;
+  height: 36px;
+  padding: 0 11px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--secondary);
   color: var(--text);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .vpn-input:focus-visible {
   outline: none;
   border-color: var(--primary);
-  box-shadow: var(--ring);
+  box-shadow: var(--focus-ring);
 }
 
 .vpn-mono {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* Subscriptions, buttons and the location list live in one card now. */
@@ -986,13 +1021,13 @@ function pingLabel(ms: number | null): string {
 }
 
 .vpn-locations-head strong {
-  font-size: 12px;
+  font-size: 13.5px;
   font-weight: 600;
 }
 
 .vpn-locations-head span {
   color: var(--text-3);
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 
 .vpn-list {
@@ -1020,13 +1055,19 @@ function pingLabel(ms: number | null): string {
 
 .vpn-groups-label {
   color: var(--text-3);
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 
 .vpn-bundle-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+/* Sits on the same baseline as the bundle picker, pinned to the right edge. */
+.vpn-bases-btn {
+  margin-left: auto;
 }
 
 .vpn-select {
@@ -1057,7 +1098,7 @@ function pingLabel(ms: number | null): string {
 
 .vpn-suggest-head span {
   color: var(--text-2);
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 
 .vpn-suggest-list {
@@ -1074,14 +1115,14 @@ function pingLabel(ms: number | null): string {
   gap: 8px;
   padding: 2px 4px;
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 
 .vpn-suggest-row code {
   overflow: hidden;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 11.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1090,7 +1131,7 @@ function pingLabel(ms: number | null): string {
   margin-left: auto;
   color: var(--text-3);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .vpn-details {
@@ -1100,9 +1141,9 @@ function pingLabel(ms: number | null): string {
 }
 
 .vpn-details > summary {
-  padding: 8px 12px;
+  padding: 9px 12px;
   color: var(--text-2);
-  font-size: 11.5px;
+  font-size: 12.5px;
   cursor: pointer;
   user-select: none;
 }
@@ -1156,19 +1197,19 @@ function pingLabel(ms: number | null): string {
   background: var(--accent-soft);
   color: var(--text);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .vpn-chip-remove {
   display: grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   border: 0;
   border-radius: 50%;
   background: transparent;
   color: var(--text-2);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1;
   cursor: pointer;
 }
@@ -1189,13 +1230,14 @@ function pingLabel(ms: number | null): string {
   gap: 12px;
   align-items: center;
   width: 100%;
-  padding: 9px 12px;
+  min-height: 38px;
+  padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--secondary);
   color: var(--text);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
@@ -1215,30 +1257,80 @@ function pingLabel(ms: number | null): string {
 }
 
 .vpn-row-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.vpn-row-check {
+  flex: 0 0 auto;
+  color: var(--accent-text);
+}
+
 .vpn-row-scheme {
   color: var(--text-3);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11.5px;
 }
 
 .vpn-row-ping {
-  min-width: 52px;
+  min-width: 56px;
   color: var(--text-2);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .vpn-log-head {
   display: flex;
+  flex-direction: row;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+/* Advanced block: ports, core and logs stay out of the way until needed. */
+.vpn-advanced > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 14px 16px;
+  color: var(--text);
+  font-size: var(--fs-title);
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.vpn-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.vpn-advanced > summary::before {
+  content: "▸";
+  color: var(--text-3);
+  font-weight: 400;
+}
+
+.vpn-advanced[open] > summary::before {
+  content: "▾";
+}
+
+.vpn-advanced > summary .muted {
+  font-size: var(--fs-caption);
+  font-weight: 400;
+}
+
+.vpn-advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 16px 16px;
 }
 
 .vpn-log {

@@ -1,40 +1,42 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref } from "vue";
+import { computed } from "vue";
+import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from "reka-ui";
 import MarkdownBody from "./MarkdownBody.vue";
+import Button from "./ui/button/Button.vue";
 import { dismissWhatsNew, openReleasePage, whatsNew } from "../store";
 
-const closeButton = ref<HTMLButtonElement | null>(null);
+const open = computed(() => !!whatsNew.value);
 
-function onKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape") dismissWhatsNew();
+function onOpenChange(value: boolean) {
+  if (!value) dismissWhatsNew();
 }
-
-onMounted(async () => {
-  window.addEventListener("keydown", onKeydown);
-  await nextTick();
-  closeButton.value?.focus();
-});
-
-onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="whatsNew" class="modal-backdrop" @click.self="dismissWhatsNew">
-      <div
-        class="modal whats-new-modal"
-        role="dialog"
-        aria-modal="true"
-        :aria-label="`Что нового в Splitline ${whatsNew.version}`"
+  <DialogRoot :open="open" @update:open="onOpenChange">
+    <DialogPortal>
+      <DialogOverlay class="modal-backdrop" />
+      <DialogContent
+        class="modal whats-new-modal dialog-center"
+        :aria-label="`Что нового в Splitline ${whatsNew?.version ?? ''}`"
       >
-        <h3>Что нового в Splitline {{ whatsNew.version }}</h3>
-        <MarkdownBody class="whats-new-notes" :source="whatsNew.notes" />
+        <DialogTitle as-child>
+          <h3>Что нового в Splitline {{ whatsNew?.version }}</h3>
+        </DialogTitle>
+        <MarkdownBody v-if="whatsNew" class="whats-new-notes" :source="whatsNew.notes" />
 
         <div class="modal-actions">
-          <button class="btn small" @click="openReleasePage(whatsNew.url)">Открыть релиз</button>
-          <button ref="closeButton" class="btn primary" @click="dismissWhatsNew">Понятно</button>
+          <Button
+            v-if="whatsNew"
+            variant="secondary"
+            size="sm"
+            @click="openReleasePage(whatsNew.url)"
+          >
+            Открыть релиз
+          </Button>
+          <Button @click="dismissWhatsNew">Закрыть</Button>
         </div>
-      </div>
-    </div>
-  </Teleport>
+      </DialogContent>
+    </DialogPortal>
+  </DialogRoot>
 </template>

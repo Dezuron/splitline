@@ -67,6 +67,9 @@ describe("themes", () => {
 
     applyTheme("carmine");
     expect(document.documentElement.dataset.theme).toBe("carmine");
+    // An unknown id (for example the removed graphite theme) falls back.
+    applyTheme("graphite");
+    expect(document.documentElement.dataset.theme).toBe("satellite");
     expect(document.documentElement.classList.contains("dark")).toBe(true);
 
     // Legacy ids are mapped to the themes that replaced them.

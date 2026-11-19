@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from "vue";
 import Panel from "./Panel.vue";
+import Button from "./ui/button/Button.vue";
 import Toggle from "./Toggle.vue";
 import MarkdownBody from "./MarkdownBody.vue";
 import { formatBytes } from "../lib/labels";
@@ -15,15 +16,18 @@ import {
   benchRunning,
   busy,
   checkAppUpdate,
+  checkAllUpdates,
   checkTgwsUpdate,
   checkUpdate,
   checkingAppUpdate,
   checkingUpdate,
   chooseRuntimeFolder,
   config,
+  installRuntime,
   openFolder,
   openReleasePage,
   runtimePath,
+  runtimeReady,
   setAutoApply,
   setCheckAppUpdates,
   setGameFilter,
@@ -62,104 +66,143 @@ onMounted(() => {
 
 <template>
   <Panel title="Настройки">
-    <section class="section">
-      <h3>Обновления</h3>
-
-      <h4>Приложение</h4>
-      <div class="version-row">
-        <div class="version-box">
-          <span class="field-label">Текущая</span>
-          <span class="field-value">{{ appVersion || "—" }}</span>
-        </div>
-        <span class="arrow" aria-hidden="true">→</span>
-        <div class="version-box" :class="{ available: appUpdate?.available }">
-          <span class="field-label">Доступно</span>
-          <span class="field-value">
-            {{ appUpdate?.available ? appUpdate.latest : appVersion || "—" }}
-          </span>
-        </div>
-      </div>
-
-      <template v-if="appUpdate?.available">
-        <MarkdownBody v-if="appUpdate.notes" class="changelog" :source="appUpdate.notes" />
-        <button
-          class="btn primary"
-          :disabled="busy || benchRunning || !appUpdate.can_auto_update"
-          @click="applyAppUpdate"
-        >
-          Обновить приложение
-        </button>
-        <button class="btn small" @click="openReleasePage(appUpdate.url)">
-          Открыть страницу релиза
-        </button>
-      </template>
-      <button
-        v-else
-        class="btn"
-        :disabled="checkingAppUpdate || benchRunning"
-        @click="checkAppUpdate(false)"
-      >
-        {{ checkingAppUpdate ? "Проверка…" : "Проверить обновление приложения" }}
-      </button>
-      <div v-if="appUpdateProgress" class="muted">{{ appUpdateProgress }}</div>
-
-      <h4>flowseal-zapret</h4>
-      <div class="version-row">
-        <div class="version-box">
-          <span class="field-label">Версия</span>
-          <span class="field-value">{{ status?.installed_version || "не установлен" }}</span>
-        </div>
-        <span class="arrow" aria-hidden="true">→</span>
-        <div class="version-box" :class="{ available: updateInfo?.update_available }">
-          <span class="field-label">Доступно</span>
-          <span class="field-value">
-            {{
-              updateInfo?.update_available ? updateInfo.latest : status?.installed_version || "—"
-            }}
-          </span>
-        </div>
-      </div>
-
-      <template v-if="updateInfo?.update_available">
-        <MarkdownBody class="changelog" :source="updateInfo.changelog" />
-        <button class="btn primary" :disabled="busy || benchRunning" @click="applyUpdate">
-          Обновить{{
-            updateInfo.download_size ? ` (${formatBytes(updateInfo.download_size)})` : ""
-          }}
-        </button>
-      </template>
-      <button class="btn" :disabled="checkingUpdate || benchRunning" @click="checkUpdate(false)">
-        {{ checkingUpdate ? "Проверка…" : "Проверить обновления flowseal-zapret" }}
-      </button>
+    <section v-if="!runtimeReady" class="section">
+      <h3>flowseal-zapret не установлен</h3>
+      <p class="muted">
+        Обход DPI появится после установки flowseal-zapret: около 10 МБ с GitHub, приложение
+        скачает, распакует и предложит выбрать стратегию.
+      </p>
+      <Button :disabled="busy" @click="installRuntime">
+        {{ busy ? "Установка…" : "Скачать и установить" }}
+      </Button>
       <div v-if="updateProgress" class="muted">{{ updateProgress }}</div>
+    </section>
 
-      <h4>Telegram WS-прокси</h4>
-      <div class="version-row">
-        <div class="version-box">
-          <span class="field-label">Версия</span>
-          <span class="field-value">{{ tgwsVersion }}</span>
-        </div>
-        <span class="arrow" aria-hidden="true">→</span>
-        <div class="version-box" :class="{ available: tgwsUpdate?.has_update }">
-          <span class="field-label">Доступно</span>
-          <span class="field-value">
-            {{ tgwsUpdate?.has_update && tgwsUpdate.latest ? tgwsUpdate.latest : tgwsVersion }}
-          </span>
-        </div>
+    <section class="section">
+      <div class="section-head">
+        <h3>Обновления</h3>
+        <Button
+          variant="secondary"
+          size="sm"
+          :disabled="checkingAppUpdate || checkingUpdate || tgwsChecking || benchRunning"
+          @click="checkAllUpdates"
+        >
+          {{ checkingAppUpdate || checkingUpdate || tgwsChecking ? "Проверка…" : "Проверить всё" }}
+        </Button>
       </div>
 
-      <button
-        v-if="tgwsUpdate?.has_update"
-        class="btn primary"
-        :disabled="tgwsBusy"
-        @click="applyTgwsUpdate"
-      >
-        Обновить{{ tgwsUpdate.asset_size ? ` (${formatBytes(tgwsUpdate.asset_size)})` : "" }}
-      </button>
-      <button v-else class="btn" :disabled="tgwsChecking" @click="checkTgwsUpdate(false, true)">
-        {{ tgwsChecking ? "Проверка…" : "Проверить обновление прокси" }}
-      </button>
-      <div v-if="tgwsProgress" class="muted">{{ tgwsProgress }}</div>
+      <div class="update-list">
+        <div class="update-item">
+          <div class="update-item-info">
+            <strong>Приложение</strong>
+            <span class="muted">
+              {{ appVersion || "—" }}
+              <template v-if="appUpdate?.available"> → {{ appUpdate.latest }}</template>
+            </span>
+          </div>
+          <div class="update-item-actions">
+            <Button
+              v-if="appUpdate?.available"
+              size="sm"
+              :disabled="busy || benchRunning || !appUpdate.can_auto_update"
+              @click="applyAppUpdate"
+            >
+              Обновить
+            </Button>
+            <template v-else>
+              <Button
+                variant="secondary"
+                size="sm"
+                :disabled="checkingAppUpdate || benchRunning"
+                @click="checkAppUpdate(false)"
+              >
+                {{ checkingAppUpdate ? "Проверка…" : "Проверить" }}
+              </Button>
+            </template>
+            <Button
+              v-if="appUpdate?.available"
+              variant="ghost"
+              size="sm"
+              @click="openReleasePage(appUpdate.url)"
+            >
+              Релиз
+            </Button>
+          </div>
+          <details v-if="appUpdate?.available && appUpdate.notes" class="update-notes">
+            <summary>Что нового</summary>
+            <MarkdownBody :source="appUpdate.notes" />
+          </details>
+          <div v-if="appUpdateProgress" class="muted">{{ appUpdateProgress }}</div>
+        </div>
+
+        <div class="update-item">
+          <div class="update-item-info">
+            <strong>flowseal-zapret</strong>
+            <span class="muted">
+              {{ status?.installed_version || "не установлен" }}
+              <template v-if="updateInfo?.update_available"> → {{ updateInfo.latest }}</template>
+            </span>
+          </div>
+          <div class="update-item-actions">
+            <Button
+              v-if="updateInfo?.update_available"
+              size="sm"
+              :disabled="busy || benchRunning"
+              @click="applyUpdate"
+            >
+              Обновить{{
+                updateInfo.download_size ? ` (${formatBytes(updateInfo.download_size)})` : ""
+              }}
+            </Button>
+            <Button
+              v-else
+              variant="secondary"
+              size="sm"
+              :disabled="checkingUpdate || benchRunning"
+              @click="checkUpdate(false)"
+            >
+              {{ checkingUpdate ? "Проверка…" : "Проверить" }}
+            </Button>
+          </div>
+          <details v-if="updateInfo?.update_available && updateInfo.changelog" class="update-notes">
+            <summary>Что нового</summary>
+            <MarkdownBody :source="updateInfo.changelog" />
+          </details>
+          <div v-if="updateProgress" class="muted">{{ updateProgress }}</div>
+        </div>
+
+        <div class="update-item">
+          <div class="update-item-info">
+            <strong>Telegram WS-прокси</strong>
+            <span class="muted">
+              {{ tgwsVersion }}
+              <template v-if="tgwsUpdate?.has_update && tgwsUpdate.latest">
+                → {{ tgwsUpdate.latest }}
+              </template>
+            </span>
+          </div>
+          <div class="update-item-actions">
+            <Button
+              v-if="tgwsUpdate?.has_update"
+              size="sm"
+              :disabled="tgwsBusy"
+              @click="applyTgwsUpdate"
+            >
+              Обновить{{ tgwsUpdate.asset_size ? ` (${formatBytes(tgwsUpdate.asset_size)})` : "" }}
+            </Button>
+            <Button
+              v-else
+              variant="secondary"
+              size="sm"
+              :disabled="tgwsChecking"
+              @click="checkTgwsUpdate(false, true)"
+            >
+              {{ tgwsChecking ? "Проверка…" : "Проверить" }}
+            </Button>
+          </div>
+          <div v-if="tgwsProgress" class="muted">{{ tgwsProgress }}</div>
+        </div>
+      </div>
     </section>
 
     <section class="section">
@@ -232,22 +275,25 @@ onMounted(() => {
       <div class="field">
         <span class="field-label">Папка flowseal-zapret</span>
         <span class="field-value path-value" :title="runtimePath">{{ runtimePath }}</span>
-        <button
-          class="btn small"
+        <Button
+          variant="secondary"
+          size="sm"
           title="Сменить папку; при запущенном обходе потребуется остановка"
           @click="chooseRuntimeFolder"
         >
           Изменить
-        </button>
+        </Button>
       </div>
 
-      <button
-        class="btn small"
+      <Button
+        variant="secondary"
+        size="sm"
+        class="self-start"
         title="Открыть папку flowseal-zapret: стратегии .bat, списки и bin"
         @click="openFolder"
       >
         Открыть папку flowseal-zapret
-      </button>
+      </Button>
     </section>
   </Panel>
 </template>

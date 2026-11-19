@@ -283,8 +283,8 @@ fn parse_config(text: &str) -> Option<AppConfig> {
     // stripping it, a hand-edited config silently resets every setting.
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut cfg = serde_json::from_str::<AppConfig>(text).ok()?;
-    // Themes trimmed to satellite/carmine in 1.4: every old dark variant maps
-    // to satellite, the paper themes to carmine.
+    // Themes trimmed to satellite/carmine: every old dark variant maps to
+    // satellite, the paper themes to carmine.
     cfg.theme = match cfg.theme.to_ascii_lowercase().as_str() {
         "carmine" => "carmine".into(),
         "light" | "stencil" => "carmine".into(),

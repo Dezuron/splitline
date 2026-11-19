@@ -821,6 +821,33 @@ export async function checkTgwsUpdate(silent = true, force = false): Promise<boo
   }
 }
 
+/** One button for all three components: app, flowseal-zapret and the Telegram proxy. */
+export async function checkAllUpdates(): Promise<boolean> {
+  const results = await Promise.all([
+    checkAppUpdate(true),
+    checkUpdate(true),
+    checkTgwsUpdate(true, true),
+  ]);
+  if (results.some((ok) => !ok)) {
+    toast("warning", "Не удалось проверить все обновления — проверьте сеть.");
+    return false;
+  }
+
+  const updates: string[] = [];
+  if (appUpdate.value?.available) updates.push(`приложение ${appUpdate.value.latest}`);
+  if (updateInfo.value?.update_available) {
+    updates.push(`flowseal-zapret ${updateInfo.value.latest}`);
+  }
+  if (tgwsUpdate.value?.has_update && tgwsUpdate.value.latest) {
+    updates.push(`Telegram-прокси ${tgwsUpdate.value.latest}`);
+  }
+  toast(
+    updates.length ? "success" : "info",
+    updates.length ? `Доступны обновления: ${updates.join(", ")}.` : "Обновлений нет.",
+  );
+  return true;
+}
+
 /** Downloads and installs the newest proxy release (resolved by the backend). */
 async function installTgwsBinary(): Promise<void> {
   tgwsProgress.value = "Скачивание прокси…";

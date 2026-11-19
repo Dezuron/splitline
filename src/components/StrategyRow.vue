@@ -70,12 +70,6 @@ function onKeydown(event: KeyboardEvent) {
           {{ verdictLabel[props.row.bench.verdict] }}
         </span>
       </div>
-      <div v-else-if="props.row.generated" class="row-preview muted">
-        создана из «{{ props.row.parent }}» · нет данных
-      </div>
-      <div v-else class="row-preview">
-        {{ props.row.args_preview || "нет данных" }}
-      </div>
     </div>
 
     <div class="row-side">

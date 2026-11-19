@@ -304,78 +304,77 @@ async function commitSecret() {
     </Card>
 
     <Card class="tgws-card">
-      <CardHeader>
-        <CardTitle>Параметры</CardTitle>
-        <CardDescription>
-          Остальные флаги прокси (DC-адреса, буфер, пул, Cloudflare) настраиваются в секции
-          <code>tgws</code> файла <code>config.json</code>.
-        </CardDescription>
-      </CardHeader>
-      <CardContent class="tgws-fields">
-        <label class="field">
-          <span class="field-label">Хост</span>
-          <input
-            v-model="hostDraft"
-            class="tgws-input"
-            spellcheck="false"
-            placeholder="127.0.0.1"
-            @change="commitHost"
-            @keydown.enter="commitHost"
-          />
-        </label>
-        <label class="field">
-          <span class="field-label">Порт</span>
-          <input
-            v-model.number="portDraft"
-            class="tgws-input"
-            type="number"
-            min="1024"
-            max="65535"
-            @change="commitPort"
-            @keydown.enter="commitPort"
-          />
-        </label>
-        <label class="field field-wide">
-          <span class="field-label">Секретный ключ (32 hex)</span>
-          <input
-            v-model="secretDraft"
-            class="tgws-input tgws-mono"
-            spellcheck="false"
-            maxlength="32"
-            @change="commitSecret"
-            @keydown.enter="commitSecret"
-          />
-        </label>
+      <details class="tgws-advanced">
+        <summary>
+          <span>Дополнительно</span>
+          <span class="muted">Хост, порт, ключ и логи</span>
+        </summary>
+        <div class="tgws-advanced-body">
+          <div class="tgws-fields">
+            <label class="field">
+              <span class="field-label">Хост</span>
+              <input
+                v-model="hostDraft"
+                class="tgws-input"
+                spellcheck="false"
+                placeholder="127.0.0.1"
+                @change="commitHost"
+                @keydown.enter="commitHost"
+              />
+            </label>
+            <label class="field">
+              <span class="field-label">Порт</span>
+              <input
+                v-model.number="portDraft"
+                class="tgws-input"
+                type="number"
+                min="1024"
+                max="65535"
+                @change="commitPort"
+                @keydown.enter="commitPort"
+              />
+            </label>
+            <label class="field field-wide">
+              <span class="field-label">Секретный ключ (32 hex)</span>
+              <input
+                v-model="secretDraft"
+                class="tgws-input tgws-mono"
+                spellcheck="false"
+                maxlength="32"
+                @change="commitSecret"
+                @keydown.enter="commitSecret"
+              />
+            </label>
 
-        <p class="tgws-hint field-wide">
-          Прокси включится при следующем запуске, если был включён при выходе.
-        </p>
+            <p class="tgws-hint field-wide">
+              Прокси включится при следующем запуске, если был включён при выходе. Остальные флаги
+              (DC-адреса, буфер, пул, Cloudflare) — в секции <code>tgws</code> файла
+              <code>config.json</code>.
+            </p>
 
-        <p v-if="publicBinding" class="tgws-warning field-wide">
-          <AlertTriangle :size="14" />
-          <span>
-            Хост <strong>{{ displayHost(config?.tgws.host) }}</strong> открывает прокси другим
-            устройствам в сети. Оставьте 127.0.0.1, если доступ извне не нужен.
-          </span>
-        </p>
-      </CardContent>
-    </Card>
+            <p v-if="publicBinding" class="tgws-warning field-wide">
+              <AlertTriangle :size="14" />
+              <span>
+                Хост <strong>{{ displayHost(config?.tgws.host) }}</strong> открывает прокси другим
+                устройствам в сети. Оставьте 127.0.0.1, если доступ извне не нужен.
+              </span>
+            </p>
+          </div>
 
-    <Card class="tgws-card">
-      <CardHeader class="tgws-log-head">
-        <div>
-          <CardTitle>Логи</CardTitle>
-          <CardDescription
-            >Последние {{ tgwsLogs.length }} строк от процесса прокси</CardDescription
-          >
+          <div class="tgws-log-head">
+            <div>
+              <span class="field-label">Логи</span>
+              <span class="muted">Последние {{ tgwsLogs.length }} строк от процесса прокси</span>
+            </div>
+            <Button variant="ghost" size="sm" @click="logsOpen = !logsOpen">
+              {{ logsOpen ? "Свернуть" : "Показать" }}
+            </Button>
+          </div>
+          <pre v-if="logsOpen" ref="logBox" class="tgws-log">{{
+            logText || "Пока пусто — включите прокси."
+          }}</pre>
         </div>
-        <Button variant="ghost" size="sm" @click="logsOpen = !logsOpen">
-          {{ logsOpen ? "Свернуть" : "Показать" }}
-        </Button>
-      </CardHeader>
-      <CardContent v-if="logsOpen">
-        <pre ref="logBox" class="tgws-log">{{ logText || "Пока пусто — включите прокси." }}</pre>
-      </CardContent>
+      </details>
     </Card>
   </div>
 </template>
@@ -502,10 +501,10 @@ async function commitSecret() {
 .tgws-meta span {
   display: block;
   color: var(--text-3);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .tgws-meta strong {
@@ -593,7 +592,7 @@ async function commitSecret() {
 
 .tgws-update-text span {
   color: var(--text-3);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .tgws-update-link {
@@ -603,7 +602,7 @@ async function commitSecret() {
   background: none;
   color: var(--accent-text);
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -639,20 +638,20 @@ async function commitSecret() {
   background: var(--muted);
   color: var(--text-2);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
 .tgws-hint {
   color: var(--text-3);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
 .tgws-hint code {
   color: var(--text-2);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 
 .tgws-fields {
@@ -684,19 +683,59 @@ async function commitSecret() {
 .tgws-input:focus-visible {
   outline: none;
   border-color: var(--primary);
-  box-shadow: var(--ring);
+  box-shadow: var(--focus-ring);
 }
 
 .tgws-mono {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .tgws-log-head {
   display: flex;
+  flex-direction: row;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+.tgws-advanced > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 14px 16px;
+  color: var(--text);
+  font-size: var(--fs-title);
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tgws-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tgws-advanced > summary::before {
+  content: "▸";
+  color: var(--text-3);
+  font-weight: 400;
+}
+
+.tgws-advanced[open] > summary::before {
+  content: "▾";
+}
+
+.tgws-advanced > summary .muted {
+  font-size: var(--fs-caption);
+  font-weight: 400;
+}
+
+.tgws-advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 16px 16px;
 }
 
 .tgws-log {
@@ -709,7 +748,7 @@ async function commitSecret() {
   background: var(--secondary);
   color: var(--text-2);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
