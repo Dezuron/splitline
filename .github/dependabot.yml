@@ -1,0 +1,44 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels: ["dependencies"]
+    groups:
+      npm-dev-minor:
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
+      npm-prod-minor:
+        dependency-type: "production"
+        update-types: ["minor", "patch"]
+
+  # The Cargo manifest lives in src-tauri; "/" would silently match nothing.
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels: ["dependencies"]
+    groups:
+      tauri-minor:
+        patterns: ["tauri*", "wry", "tao"]
+        update-types: ["minor", "patch"]
+      rust-minor:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "chore(ci)"
+    labels: ["dependencies"]

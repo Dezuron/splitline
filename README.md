@@ -210,7 +210,9 @@ cargo clippy --all-targets -- -D warnings
 (установщик, per-user). Версия проверяется `npm run check:version`.
 
 CI (GitHub Actions) прогоняет `cargo fmt --check`, `clippy -D warnings`, Rust- и
-frontend-тесты, Prettier и ESLint на каждый pull request в `master`. Пуш в `master` собирает
+frontend-тесты, Prettier и ESLint на каждый pull request в `master`. Отдельная джоба
+`Dependency audit` падает на уязвимостях в npm- и Rust-зависимостях (`npm audit`,
+`cargo audit`); локально то же самое делает `npm run security`. Пуш в `master` собирает
 установщик и создаёт тег `v<version>` с релизом, если такого тега ещё нет.
 
 ## Благодарности
