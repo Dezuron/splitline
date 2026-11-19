@@ -37,5 +37,7 @@ build/tgws
 *.sw?
 # Playwright MCP snapshots
 .playwright-mcp/
+# Local scratch files
+.tmp/
 # Local build output in the repo root
 /Splitline.exe
