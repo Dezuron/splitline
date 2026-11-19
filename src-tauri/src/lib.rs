@@ -9,6 +9,7 @@ mod geo;
 mod job;
 mod probe;
 mod progress;
+mod registry;
 mod runtime;
 mod strategy;
 mod sys;
@@ -780,12 +781,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            // The Telegram proxy is a child process: never leave it running
-            // after the window is gone, otherwise port 1443 stays occupied.
+            // ExitRequested and Exit both fire on a single shutdown; the cleanup
+            // must run once, otherwise two rounds of proxy/process work race.
             if matches!(
                 event,
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
-            ) {
+            ) && !exit_cleanup_started()
+            {
                 // Telegram proxy: a child process, stopped through the job object.
                 crate::tgws::stop_on_exit(app_handle);
                 // Xray core: same story, it must not outlive the app.
@@ -795,6 +797,13 @@ pub fn run() {
                 crate::engine::Engine::stop_service();
             }
         });
+}
+
+/// Guards the exit cleanup so `ExitRequested` and `Exit` do the work only once.
+fn exit_cleanup_started() -> bool {
+    use std::sync::atomic::Ordering;
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    STARTED.swap(true, Ordering::SeqCst)
 }
 
 #[cfg(test)]

@@ -247,6 +247,15 @@ fn replace_and_restart(downloaded: &Path) -> Result<(), String> {
     }
     let _ = fs::remove_file(downloaded);
 
+    // A relaunch started while Windows is ending the session dies in the
+    // loader with 0xc0000142 and shows a dialog; the new exe will start on the
+    // next logon anyway.
+    if sys::session_ending() {
+        return Err(
+            "Windows завершает сеанс — новая версия запустится при следующем входе.".into(),
+        );
+    }
+
     let mut command = Command::new(&current);
     command
         .args(relaunch_args())

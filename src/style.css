@@ -2329,74 +2329,10 @@ body {
   color: #fff;
 }
 
-.resize-handle {
-  position: fixed;
-  z-index: 500;
-}
-
-.resize-n,
-.resize-s {
-  left: 8px;
-  right: 8px;
-  height: 6px;
-  cursor: ns-resize;
-}
-
-.resize-n {
-  top: 0;
-}
-
-.resize-s {
-  bottom: 0;
-}
-
-.resize-e,
-.resize-w {
-  top: 8px;
-  bottom: 8px;
-  width: 6px;
-  cursor: ew-resize;
-}
-
-.resize-e {
-  right: 0;
-}
-
-.resize-w {
-  left: 0;
-}
-
-.resize-ne,
-.resize-nw,
-.resize-se,
-.resize-sw {
-  width: 10px;
-  height: 10px;
-}
-
-.resize-ne {
-  top: 0;
-  right: 0;
-  cursor: nesw-resize;
-}
-
-.resize-nw {
-  top: 0;
-  left: 0;
-  cursor: nwse-resize;
-}
-
-.resize-se {
-  right: 0;
-  bottom: 0;
-  cursor: nwse-resize;
-}
-
-.resize-sw {
-  left: 0;
-  bottom: 0;
-  cursor: nesw-resize;
-}
+/* Window resizing is native: with `decorations: false` and `shadow: true` tao
+   keeps an 8px hidden thick frame around the client area, so a drag started
+   beside the visible edge resizes the window like any other Windows app. An
+   in-page overlay would sit on top of the scrollbar and steal its hover area. */
 
 /* ---------- Tactile buttons ---------- */
 .btn,
