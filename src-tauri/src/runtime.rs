@@ -177,7 +177,7 @@ pub fn extract_zip(zip_path: &Path, dest: &Path) -> Result<(), String> {
         let Some(relative) = entry.enclosed_name() else {
             return Err(format!(
                 "В архиве релиза недопустимый путь: {}",
-                entry.name()
+                String::from_utf8_lossy(entry.name_raw())
             ));
         };
         if entry.is_dir() {
