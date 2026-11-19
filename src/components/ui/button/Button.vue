@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { ref } from "vue";
 import { cn } from "@/lib/utils";
 import { buttonVariants, type ButtonVariants } from ".";
 
@@ -20,16 +20,15 @@ const props = withDefaults(defineProps<Props>(), {
   disabled: false,
 });
 
-const textColor = computed(() => {
-  if (props.variant === "destructive") return "#ffffff";
-  if (props.variant === "default") return "var(--primary-foreground)";
-  if (props.variant === "ghost") return "var(--muted-foreground)";
-  return "var(--foreground)";
-});
+const el = ref<HTMLButtonElement | null>(null);
+
+/** Dialogs move focus here after opening. */
+defineExpose({ focus: () => el.value?.focus() });
 </script>
 
 <template>
   <button
+    ref="el"
     v-bind="$attrs"
     :type="props.type"
     :disabled="props.disabled"
@@ -37,10 +36,6 @@ const textColor = computed(() => {
     :data-size="props.size"
     :class="cn(buttonVariants({ variant: props.variant, size: props.size }), props.class)"
   >
-    <span
-      :style="{ color: textColor, display: 'inline-flex', alignItems: 'center', gap: 'inherit' }"
-    >
-      <slot />
-    </span>
+    <slot />
   </button>
 </template>

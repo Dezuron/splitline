@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import {
   LayoutDashboard,
@@ -14,7 +14,12 @@ import logoCarmine from "../assets/logo-carmine.png";
 import logoSatellite from "../assets/logo-satellite.png";
 import { appVersion } from "../store";
 
-const collapsed = ref(false);
+const COLLAPSED_KEY = "splitline.sidebar-collapsed";
+const collapsed = ref(localStorage.getItem(COLLAPSED_KEY) === "1");
+
+watch(collapsed, (value) => {
+  localStorage.setItem(COLLAPSED_KEY, value ? "1" : "0");
+});
 
 const items = [
   { to: "/", id: "dashboard", label: "Главная", icon: LayoutDashboard },
@@ -47,12 +52,15 @@ const items = [
         :title="collapsed ? item.label : undefined"
       >
         <component :is="item.icon" :size="18" :stroke-width="1.9" />
-        <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
+        <span class="nav-label" v-if="!collapsed">{{ item.label }}</span>
+        <span v-else class="sr-only">{{ item.label }}</span>
       </RouterLink>
     </nav>
 
     <div class="sidebar-bottom">
-      <div v-if="!collapsed" class="sidebar-version">версия {{ appVersion || "1.0.0" }}</div>
+      <div v-if="!collapsed" class="sidebar-version">
+        {{ appVersion ? "версия " + appVersion : "версия —" }}
+      </div>
       <button
         class="collapse-btn"
         type="button"

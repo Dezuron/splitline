@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
+import Button from "./ui/button/Button.vue";
 import {
   busy,
   chooseRuntimeFolder,
@@ -11,10 +12,17 @@ import {
 } from "../store";
 
 const step = ref<1 | 2 | 3>(1);
+
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape") dismissSetupWizard();
+}
+
+onMounted(() => window.addEventListener("keydown", onKeydown));
+onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 </script>
 
 <template>
-  <div class="setup-wizard">
+  <div class="setup-wizard" role="dialog" aria-modal="true" aria-label="Мастер настройки Splitline">
     <div class="setup-card">
       <div class="setup-steps" aria-hidden="true">
         <span :class="{ active: step >= 1 }">1</span>
@@ -38,8 +46,8 @@ const step = ref<1 | 2 | 3>(1);
           </li>
         </ul>
         <div class="setup-actions">
-          <button class="btn small" @click="dismissSetupWizard">Настроить позже</button>
-          <button class="btn primary" @click="step = 2">Продолжить</button>
+          <Button variant="secondary" size="sm" @click="dismissSetupWizard">Настроить позже</Button>
+          <Button @click="step = 2">Продолжить</Button>
         </div>
       </div>
 
@@ -54,10 +62,12 @@ const step = ref<1 | 2 | 3>(1);
         <div class="setup-path" :title="runtimePath">{{ runtimePath || "Путь по умолчанию" }}</div>
 
         <div class="setup-actions setup-actions-wrap">
-          <button class="btn small" @click="step = 1">Назад</button>
-          <button class="btn small" @click="useDefaultRuntimeFolder">По умолчанию</button>
-          <button class="btn small" @click="chooseRuntimeFolder">Изменить</button>
-          <button class="btn primary" @click="step = 3">Продолжить</button>
+          <Button variant="secondary" size="sm" @click="step = 1">Назад</Button>
+          <Button variant="secondary" size="sm" @click="useDefaultRuntimeFolder">
+            По умолчанию
+          </Button>
+          <Button variant="secondary" size="sm" @click="chooseRuntimeFolder">Изменить</Button>
+          <Button @click="step = 3">Продолжить</Button>
         </div>
       </div>
 
@@ -69,10 +79,10 @@ const step = ref<1 | 2 | 3>(1);
         <div v-if="updateProgress" class="muted setup-progress">{{ updateProgress }}</div>
 
         <div class="setup-actions setup-actions-wrap">
-          <button class="btn small" :disabled="busy" @click="step = 2">Назад</button>
-          <button class="btn primary" :disabled="busy" @click="installRuntime">
+          <Button variant="secondary" size="sm" :disabled="busy" @click="step = 2">Назад</Button>
+          <Button :disabled="busy" @click="installRuntime">
             {{ busy ? "Установка…" : "Скачать и установить" }}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

@@ -41,3 +41,10 @@ build/tgws
 .tmp/
 # Local build output in the repo root
 /Splitline.exe
+
+# Local backlog for 2.2/2.3 — kept on disk, never committed
+/TODO.md
+
+# Local notes and agent rules stay out of the public repository
+/docs/
+/AGENTS.md

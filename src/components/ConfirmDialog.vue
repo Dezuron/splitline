@@ -1,34 +1,33 @@
 <script setup lang="ts">
-import { nextTick, onUnmounted, ref, watch } from "vue";
+import { nextTick, ref, watch } from "vue";
+import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from "reka-ui";
+import Button from "./ui/button/Button.vue";
 import { confirmState, resolveConfirm } from "../lib/confirm";
 
-const confirmButton = ref<HTMLButtonElement | null>(null);
+const confirmButton = ref<{ focus: () => void } | null>(null);
 
-function onKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape") resolveConfirm(false);
+function onOpenChange(open: boolean) {
+  if (!open) resolveConfirm(false);
 }
 
 watch(
   () => confirmState.open,
   async (open) => {
-    if (open) {
-      window.addEventListener("keydown", onKeydown);
-      await nextTick();
-      confirmButton.value?.focus();
-    } else {
-      window.removeEventListener("keydown", onKeydown);
-    }
+    if (!open) return;
+    await nextTick();
+    confirmButton.value?.focus();
   },
 );
-
-onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="confirmState.open" class="modal-backdrop" @click.self="resolveConfirm(false)">
-      <div class="modal" role="dialog" aria-modal="true" :aria-label="confirmState.title">
-        <h3>{{ confirmState.title }}</h3>
+  <DialogRoot :open="confirmState.open" @update:open="onOpenChange">
+    <DialogPortal>
+      <DialogOverlay class="modal-backdrop" />
+      <DialogContent class="modal dialog-center" :aria-label="confirmState.title">
+        <DialogTitle as-child>
+          <h3>{{ confirmState.title }}</h3>
+        </DialogTitle>
         <p v-if="confirmState.text" class="modal-text">{{ confirmState.text }}</p>
 
         <label v-if="confirmState.checkboxLabel" class="check-line modal-check">
@@ -37,19 +36,18 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
         </label>
 
         <div class="modal-actions">
-          <button class="btn" @click="resolveConfirm(false)">
+          <Button variant="secondary" @click="resolveConfirm(false)">
             {{ confirmState.cancelLabel }}
-          </button>
-          <button
+          </Button>
+          <Button
             ref="confirmButton"
-            class="btn"
-            :class="confirmState.danger ? 'danger' : 'primary'"
+            :variant="confirmState.danger ? 'destructive' : 'default'"
             @click="resolveConfirm(true)"
           >
             {{ confirmState.confirmLabel }}
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
-  </Teleport>
+      </DialogContent>
+    </DialogPortal>
+  </DialogRoot>
 </template>

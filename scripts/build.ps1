@@ -1,9 +1,7 @@
-# Build Splitline portable exe (and NSIS/MSI installers)
+# Build Splitline portable exe
 # Output:
 #   src-tauri\target-dist\release\Splitline.exe  - built portable exe (~12 MB)
 #   <project root>\Splitline.exe                 - ready-to-use copy in the project root
-#   src-tauri\target-dist\release\bundle\nsis\*.exe - installer
-#   src-tauri\target-dist\release\bundle\msi\*.msi  - MSI installer
 
 $ErrorActionPreference = "Stop"
 
