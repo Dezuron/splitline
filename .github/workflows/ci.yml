@@ -69,3 +69,36 @@ jobs:
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test
+
+  security:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # Dev dependencies are audited too: vite and vitest run on the machine
+      # that builds the release, so their RCE advisories are our problem.
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      # Vulnerabilities fail the job. Unmaintained/unsound warnings do not:
+      # they come from Tauri's Linux-only deps, which this Windows build never compiles.
+      - name: Audit Rust dependencies
+        run: cargo audit --file src-tauri/Cargo.lock

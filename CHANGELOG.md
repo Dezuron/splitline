@@ -3,6 +3,28 @@
 Все заметные изменения проекта. Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [SemVer](https://semver.org/lang/ru/).
 
+## [2.0.3] — 2026-11-19
+
+### Изменено
+
+- **Обновлены зависимости.** `vitest` 3 → 5, `vue-tsc` 2 → 3, `@tauri-apps/cli`
+  2.11 → 2.12, крейт `zip` 2 → 9; остальные npm-пакеты и Rust-крейты подтянуты
+  до актуальных версий (`rustls`, `rustls-webpki`, `quinn-proto`, `webpki-roots`,
+  `rustix`). Для приложения это ничего не меняет — только версии под капотом.
+- **Сборка больше не печатает предупреждение `STATIC_VCRUNTIME`.** Новый Tauri CLI
+  управляет статической линковкой CRT через `build.windows.staticVCRuntime`;
+  портабельный `Splitline.exe` по-прежнему работает без установленного
+  Visual C++ Runtime.
+
+### Безопасность
+
+- **Проверка зависимостей в CI.** Джоба `Dependency audit` падает на уязвимостях
+  в npm- и Rust-зависимостях; локально то же самое делает `npm run security`.
+  Dependabot следит за npm, cargo и версиями GitHub Actions.
+- **Закрыты известные уязвимости.** В `vitest` 3 приходил critical `tinypool`
+  (prototype pollution с переходом в исполнение кода), в `vue-tsc` — цепочка
+  `minimatch`, в `zip` 2 — path traversal при распаковке архива.
+
 ## [2.0.2] — 2026-11-18
 
 ### Исправлено

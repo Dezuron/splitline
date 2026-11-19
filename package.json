@@ -1,7 +1,7 @@
 {
   "name": "splitline",
   "private": true,
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "Windows 10/11 GUI manager for flowseal-zapret (zapret-discord-youtube by Flowseal)",
   "author": "Dezuron",
   "license": "MIT",
@@ -21,6 +21,7 @@
     "format": "prettier --write \"src/**/*.{ts,vue,css}\" \"*.{json,js,ts}\"",
     "format:check": "prettier --check \"src/**/*.{ts,vue,css}\" \"*.{json,js,ts}\"",
     "check:version": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-version.ps1",
+    "security": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/audit.ps1",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -39,7 +40,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.3.3",
-    "@tauri-apps/cli": "^2",
+    "@tauri-apps/cli": "^2.12.6",
     "@types/markdown-it": "^14.2.0",
     "@vitejs/plugin-vue": "^5.2.1",
     "@vue/eslint-config-typescript": "^14.9.0",
@@ -51,7 +52,7 @@
     "tailwindcss": "^4.3.3",
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
-    "vitest": "^3.2.4",
-    "vue-tsc": "^2.1.10"
+    "vitest": "^5.1.1",
+    "vue-tsc": "^3.3.14"
   }
 }
