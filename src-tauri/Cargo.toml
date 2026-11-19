@@ -25,7 +25,7 @@ thiserror = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "blocking"] }
 zip = { version = "9", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
-getrandom = "0.2"
+getrandom = "0.4"
 dirs = "5"
 windows-sys = { version = "0.59", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Registry", "Win32_Foundation", "Win32_Graphics_Dwm", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Services", "Win32_System_JobObjects", "Win32_System_Diagnostics_ToolHelp", "Win32_Security"] }
 
