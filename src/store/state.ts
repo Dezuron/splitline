@@ -9,6 +9,7 @@ import type {
   DownloadProgress,
   QuickCheck,
   TgwsStatus,
+  TgwsDiagnosis,
   TgwsUpdateInfo,
   XrayProfile,
   XrayStatus,
@@ -54,6 +55,35 @@ export const tgwsProgress = ref<string | null>(null);
 export const xrayStatus = ref<XrayStatus | null>(null);
 export const xrayProfiles = ref<XrayProfile[]>([]);
 export const xrayLogs = ref<string[]>([]);
+
+/** Live tunnel traffic: bytes per second and cumulative session counters. */
+export interface TrafficSample {
+  up: number;
+  down: number;
+}
+export const trafficUp = ref(0);
+export const trafficDown = ref(0);
+export const trafficTotalUp = ref(0);
+export const trafficTotalDown = ref(0);
+export const trafficSamples = ref<TrafficSample[]>([]);
+
+/** The last 20 strategy runs, oldest first: the history sparkline. */
+export const benchHistory = ref<BenchSummary[]>([]);
+
+/** Result of the on-demand Telegram proxy check. */
+export const tgwsDiagnosis = ref<TgwsDiagnosis | null>(null);
+export const tgwsDiagnosing = ref(false);
+
+/** Tunnel health: one request through SOCKS per minute while the VPN is up. */
+export const tunnelOk = ref(false);
+export const tunnelPing = ref(0);
+export const tunnelSamples = ref<boolean[]>([]);
+export const tunnelErrors = computed(() => tunnelSamples.value.filter((ok) => !ok).length);
+export const tunnelSlo = computed(() => {
+  if (!tunnelSamples.value.length) return 100;
+  const ok = tunnelSamples.value.filter(Boolean).length;
+  return Math.round((ok / tunnelSamples.value.length) * 100);
+});
 
 /** Long downloads in flight; rendered by DownloadOverlay.vue. */
 export const downloads = ref<DownloadProgress[]>([]);

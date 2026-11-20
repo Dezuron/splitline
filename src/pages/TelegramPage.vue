@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import {
   AlertTriangle,
   Copy,
@@ -8,6 +9,7 @@ import {
   RefreshCw,
   RotateCw,
   Send,
+  X,
 } from "lucide-vue-next";
 import Card from "../components/ui/card/Card.vue";
 import CardContent from "../components/ui/card/CardContent.vue";
@@ -30,8 +32,11 @@ import {
   config,
   copyTgwsLink,
   dismissTgwsUpdate,
+  diagnoseTgws,
   openReleasePage,
   openTgwsInTelegram,
+  openTgwsLog,
+  openXrayInTelegram,
   refreshTgws,
   regenerateTgwsSecret,
   restartTgws,
@@ -44,12 +49,15 @@ import {
   tgwsHasUpdate,
   tgwsLink,
   tgwsLogs,
+  tgwsDiagnosis,
+  tgwsDiagnosing,
   tgwsProgress,
   tgwsRunning,
   tgwsStateText,
   tgwsStatus,
   tgwsUpdate,
   toggleTgws,
+  xrayStatus,
 } from "../store";
 
 const hostDraft = ref("");
@@ -57,6 +65,20 @@ const portDraft = ref(1555);
 const secretDraft = ref("");
 const logsOpen = ref(false);
 const logBox = ref<HTMLElement | null>(null);
+const router = useRouter();
+
+/** Hides the check result: the card is only shown on demand. */
+function closeDiagnosis() {
+  tgwsDiagnosis.value = null;
+}
+
+function openVpnForTelegram() {
+  if (config.value?.xray.subscription_url) {
+    void openXrayInTelegram();
+  } else {
+    void router.push("/vpn");
+  }
+}
 
 const tone = computed(() => tgwsTone(tgwsStatus.value?.state));
 const endpointLabel = computed(() =>
@@ -73,6 +95,26 @@ const transitioning = computed(
 );
 const publicBinding = computed(() => isPublicBinding(config.value?.tgws.host));
 const logText = computed(() => tgwsLogs.value.join("\n"));
+
+/** Telegram keeps one proxy at a time: an active VPN tunnel wins over MTProto. */
+const telegramOnVpn = computed(
+  () =>
+    xrayStatus.value?.state === "running" &&
+    (xrayStatus.value?.client_connections ?? 0) > 0 &&
+    (tgwsStatus.value?.client_connections_total ?? 0) === 0,
+);
+/** The proxy is on, but Telegram has not connected to it yet. */
+const telegramNeedsProxy = computed(
+  () => tgwsRunning.value && (tgwsStatus.value?.client_connections_total ?? 0) === 0,
+);
+
+/** Starts the proxy if needed and hands Telegram the `tg://` link. */
+async function switchTelegramToProxy() {
+  if (!tgwsRunning.value) {
+    await toggleTgws();
+  }
+  await openTgwsInTelegram();
+}
 
 watch(
   () => config.value?.tgws,
@@ -165,6 +207,14 @@ async function commitSecret() {
 
         <div class="tgws-actions">
           <Button
+            variant="secondary"
+            size="sm"
+            :disabled="tgwsDiagnosing || transitioning"
+            @click="diagnoseTgws"
+          >
+            {{ tgwsDiagnosing ? "Проверка…" : "Проверить прокси" }}
+          </Button>
+          <Button
             variant="outline"
             size="sm"
             :disabled="tgwsBusy || transitioning || !tgwsRunning"
@@ -200,24 +250,127 @@ async function commitSecret() {
             </Button>
           </div>
         </div>
+
+        <div v-if="telegramOnVpn" class="tgws-prompt">
+          <div class="tgws-prompt-icon"><Send :size="18" /></div>
+          <div class="tgws-prompt-text">
+            <strong>Telegram сидит на VPN, а не на MTProto-прокси</strong>
+            <span>
+              В Telegram может быть активен только один прокси, поэтому трафик идёт через VPN.
+              Переключить Telegram на прокси?
+            </span>
+          </div>
+          <Button size="sm" :disabled="tgwsBusy || transitioning" @click="switchTelegramToProxy">
+            Переключить на прокси
+          </Button>
+        </div>
+
+        <div v-else-if="telegramNeedsProxy" class="tgws-prompt">
+          <div class="tgws-prompt-icon"><Send :size="18" /></div>
+          <div class="tgws-prompt-text">
+            <strong>Telegram ещё не использует прокси</strong>
+            <span>
+              В Telegram выберите «Использовать собственный прокси» и добавьте ссылку — проще всего
+              кнопкой ниже: ключ и порт уже верные, менять ничего не нужно.
+            </span>
+          </div>
+          <Button size="sm" :disabled="!tgwsLink" @click="openTgwsInTelegram">
+            Подключить Telegram
+          </Button>
+        </div>
       </CardContent>
     </Card>
 
-    <Card
-      v-if="tgwsRunning && (tgwsStatus?.client_connections_total ?? 0) === 0"
-      class="tgws-card tgws-connect-hint"
-    >
-      <AlertTriangle :size="18" />
-      <div class="tgws-connect-hint-text">
-        <strong>Telegram ещё не использует прокси</strong>
-        <span>
-          В Telegram выберите «Использовать собственный прокси» и добавьте ссылку ниже — проще всего
-          кнопкой «Подключить Telegram»: ключ и порт уже верные, менять ничего не нужно.
-        </span>
-      </div>
-      <Button size="sm" :disabled="!tgwsLink" @click="openTgwsInTelegram">
-        Подключить Telegram
-      </Button>
+    <Card v-if="tgwsDiagnosis" class="tgws-card tgws-diag">
+      <CardHeader>
+        <div class="tgws-diag-head">
+          <div>
+            <CardTitle>Проверка прокси</CardTitle>
+            <CardDescription>Результат последней проверки</CardDescription>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            title="Закрыть"
+            aria-label="Закрыть результат проверки"
+            @click="closeDiagnosis"
+          >
+            <X :size="15" />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent class="tgws-diag-body">
+        <div class="diag-list">
+          <div class="diag-row" :class="{ bad: !tgwsDiagnosis.binary }">
+            <span aria-hidden="true">{{ tgwsDiagnosis.binary ? "✓" : "✗" }}</span>
+            Прокси установлен
+          </div>
+          <div class="diag-row" :class="{ bad: !tgwsDiagnosis.process_running }">
+            <span aria-hidden="true">{{ tgwsDiagnosis.process_running ? "✓" : "✗" }}</span>
+            Процесс запущен
+          </div>
+          <div class="diag-row" :class="{ bad: !tgwsDiagnosis.port_open }">
+            <span aria-hidden="true">{{ tgwsDiagnosis.port_open ? "✓" : "✗" }}</span>
+            Порт слушается
+          </div>
+          <div class="diag-row" :class="{ bad: tgwsDiagnosis.log_errors > 0 }">
+            <span aria-hidden="true">{{ tgwsDiagnosis.log_errors > 0 ? "✗" : "✓" }}</span>
+            Связь с серверами прокси
+            <span v-if="tgwsDiagnosis.log_errors > 0" class="muted">
+              · ошибок: {{ tgwsDiagnosis.log_errors }}
+            </span>
+          </div>
+          <div class="diag-row" :class="{ bad: tgwsDiagnosis.clients === 0 }">
+            <span aria-hidden="true">{{ tgwsDiagnosis.clients > 0 ? "✓" : "✗" }}</span>
+            Telegram подключён
+            <span v-if="tgwsDiagnosis.clients > 0" class="muted">
+              · соединений: {{ tgwsDiagnosis.clients }}
+            </span>
+          </div>
+        </div>
+
+        <p class="diag-hint" :class="`is-${tgwsDiagnosis.kind}`">{{ tgwsDiagnosis.hint }}</p>
+
+        <div class="tgws-actions">
+          <Button
+            v-if="tgwsDiagnosis.kind === 'port'"
+            size="sm"
+            :disabled="tgwsBusy"
+            @click="switchTgwsPort"
+          >
+            Занять свободный порт
+          </Button>
+          <Button
+            v-if="tgwsDiagnosis.kind === 'stopped'"
+            variant="secondary"
+            size="sm"
+            :disabled="tgwsBusy"
+            @click="restartTgws"
+          >
+            Перезапустить
+          </Button>
+          <Button
+            v-if="['binary', 'blocked', 'unknown'].includes(tgwsDiagnosis.kind)"
+            variant="secondary"
+            size="sm"
+            :disabled="tgwsBusy"
+            @click="applyTgwsUpdate"
+          >
+            Обновить прокси
+          </Button>
+          <Button
+            v-if="tgwsDiagnosis.kind === 'not_connected'"
+            variant="secondary"
+            size="sm"
+            :disabled="!tgwsLink"
+            @click="openTgwsInTelegram"
+          >
+            Подключить Telegram
+          </Button>
+          <Button variant="secondary" size="sm" @click="openTgwsLog">Открыть лог</Button>
+          <Button variant="ghost" size="sm" @click="openVpnForTelegram">VPN вместо прокси</Button>
+        </div>
+      </CardContent>
     </Card>
 
     <Card v-if="tgwsHasUpdate && tgwsUpdate?.latest" class="tgws-card tgws-update">
@@ -394,18 +547,30 @@ async function commitSecret() {
   backdrop-filter: blur(18px) saturate(135%);
 }
 
-/* The proxy is running, but no Telegram client has connected yet. */
-.tgws-connect-hint {
+/* The proxy is running, but no Telegram client has connected yet — and the
+   reverse case, when Telegram sits on the VPN tunnel instead. */
+.tgws-prompt {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 16px;
-  border-color: color-mix(in oklab, var(--warn) 45%, transparent);
+  padding: 12px 14px;
+  border: 1px solid color-mix(in oklab, var(--warn) 45%, transparent);
+  border-radius: 12px;
   background: var(--warn-soft);
-  color: var(--warn);
 }
 
-.tgws-connect-hint-text {
+.tgws-prompt-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.tgws-prompt-text {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
@@ -413,13 +578,14 @@ async function commitSecret() {
   min-width: 0;
 }
 
-.tgws-connect-hint-text strong {
-  font-size: 12.5px;
+.tgws-prompt-text strong {
+  color: var(--text);
+  font-size: 13px;
 }
 
-.tgws-connect-hint-text span {
+.tgws-prompt-text span {
   color: var(--text-2);
-  font-size: 11.5px;
+  font-size: 12.5px;
   line-height: 1.45;
 }
 
@@ -521,6 +687,68 @@ async function commitSecret() {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.tgws-diag-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.diag-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.diag-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.diag-row > span:first-child {
+  width: 14px;
+  color: var(--ok);
+  font-weight: 700;
+}
+
+.diag-row.bad > span:first-child {
+  color: var(--danger);
+}
+
+.diag-hint {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.diag-hint.is-ok {
+  border-color: color-mix(in oklab, var(--ok) 40%, transparent);
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.diag-hint.is-port,
+.diag-hint.is-stopped,
+.diag-hint.is-blocked {
+  border-color: color-mix(in oklab, var(--warn) 40%, transparent);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.tgws-diag-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .tgws-progress {
@@ -689,6 +917,12 @@ async function commitSecret() {
 .tgws-mono {
   font-family: var(--mono);
   font-size: 12px;
+}
+
+.tgws-log-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .tgws-log-head {

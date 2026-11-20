@@ -281,6 +281,124 @@ pub fn logs(app: &AppHandle) -> Vec<String> {
     logs.iter().cloned().collect()
 }
 
+/// Result of the on-demand Telegram proxy check.
+#[derive(Debug, Clone, Serialize)]
+pub struct TgwsDiagnosis {
+    pub binary: bool,
+    /// What the supervisor thread believes; may lag behind reality.
+    pub supervisor_running: bool,
+    /// Whether `tgws-cli.exe` is actually in the process table.
+    pub process_running: bool,
+    pub port_open: bool,
+    pub port_conflict: bool,
+    pub clients: u64,
+    /// Matches in the recent log (Cloudflare/WebSocket/timeout errors).
+    pub log_errors: usize,
+    /// The last warning/error line, shown as-is under "technical details".
+    pub last_error_line: Option<String>,
+    pub last_error: Option<String>,
+    /// One actionable sentence in plain language.
+    pub hint: String,
+    /// `ok` | `binary` | `port` | `stopped` | `not_connected` | `blocked` | `unknown`.
+    pub kind: String,
+}
+
+/// Checks the proxy end to end when the user asks for it.
+///
+/// The supervisor flag is not trusted on its own: a process that lost its child
+/// handle keeps running and serving Telegram, so reality is read from the
+/// process table and the log.
+pub fn diagnose(app: &AppHandle) -> TgwsDiagnosis {
+    let snapshot = status(app);
+    let supervisor_running = snapshot.state == TgwsState::Running;
+    let process_running = crate::engine::image_running(BINARY_IMAGE);
+
+    let (host, port) = {
+        let state = app.state::<AppState>();
+        let cfg = lock_config(&state);
+        (cfg.tgws.host.clone(), cfg.tgws.port)
+    };
+    let probe_host = if host == "0.0.0.0" {
+        "127.0.0.1"
+    } else {
+        host.as_str()
+    };
+    let port_open = match format!("{probe_host}:{port}").parse() {
+        Ok(address) => {
+            std::net::TcpStream::connect_timeout(&address, Duration::from_millis(400)).is_ok()
+        }
+        Err(_) => false,
+    };
+
+    let recent: Vec<String> = logs(app).into_iter().rev().take(120).collect();
+    let needles = [
+        "cf proxy failed",
+        "ws pool unavailable",
+        "bad handshake",
+        "i/o timeout",
+        "connection reset",
+        "no such host",
+        "connection refused",
+        "timeout",
+    ];
+    let mut log_errors = 0;
+    let mut last_error_line = None;
+    for line in &recent {
+        let lower = line.to_ascii_lowercase();
+        if needles.iter().any(|needle| lower.contains(needle)) {
+            log_errors += 1;
+            if last_error_line.is_none() {
+                last_error_line = Some(line.trim().to_string());
+            }
+        }
+    }
+
+    let alive = process_running || supervisor_running;
+    let clients = snapshot.client_connections_total;
+    let (kind, hint) = if !snapshot.binary_present {
+        (
+            "binary",
+            "Прокси не установлен. Скачайте его кнопкой «Обновить прокси».",
+        )
+    } else if !alive {
+        (
+            "stopped",
+            "Прокси не запущен. Включите тумблер; если не стартует — обновите прокси.",
+        )
+    } else if !port_open {
+        (
+            "port",
+            "Прокси запущен, но его порт не отвечает. Попробуйте занять свободный порт или перезапустить прокси.",
+        )
+    } else if log_errors > 0 {
+        (
+            "blocked",
+            "Прокси включён и Telegram к нему подключается, но дальше соединения не проходят. Похоже, провайдер блокирует серверы, через которые работает прокси. Обновление прокси может найти другие адреса; если не поможет — включите VPN.",
+        )
+    } else if clients == 0 {
+        (
+            "not_connected",
+            "Прокси работает, но Telegram к нему не подключён. Откройте «Подключить Telegram».",
+        )
+    } else {
+        ("ok", "Прокси работает и Telegram подключён.")
+    };
+
+    TgwsDiagnosis {
+        binary: snapshot.binary_present,
+        supervisor_running,
+        process_running,
+        port_open,
+        port_conflict: snapshot.port_conflict,
+        clients,
+        log_errors,
+        last_error_line,
+        last_error: snapshot.last_error,
+        hint: hint.into(),
+        kind: kind.into(),
+    }
+}
+
 fn log_tail(app: &AppHandle, count: usize) -> String {
     let state = app.state::<AppState>();
     let logs = lock(&state.tgws.logs);

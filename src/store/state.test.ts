@@ -114,6 +114,12 @@ describe("store state", () => {
       client_connections: 1,
       system_proxy: true,
       fetched_at: 0,
+      subscription_upload: 0,
+      subscription_download: 0,
+      subscription_total: 0,
+      subscription_expire: 0,
+      subscription_page: "",
+      has_previous: false,
     };
     expect(statusText.value).toBe("VPN включён");
 

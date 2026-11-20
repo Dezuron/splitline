@@ -19,8 +19,10 @@ use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
@@ -76,7 +78,29 @@ pub struct XrayStatus {
     pub system_proxy: bool,
     /// When the subscription was last downloaded (unix seconds), 0 when never.
     pub fetched_at: u64,
+    /// Remaining quota from the `subscription-userinfo` header, 0 when absent.
+    pub subscription_upload: u64,
+    pub subscription_download: u64,
+    pub subscription_total: u64,
+    pub subscription_expire: u64,
+    /// Provider's account page, shown as a link when present.
+    pub subscription_page: String,
+    /// A previous subscription is stored and can be restored.
+    pub has_previous: bool,
 }
+
+/// Cumulative counters from the core's Stats API. The UI turns them into speeds.
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+pub struct TrafficStats {
+    pub up: u64,
+    pub down: u64,
+}
+
+/// Port of the local Stats API inbound; a provider config may already use it.
+static STATS_PORT: AtomicU16 = AtomicU16::new(10085);
+
+/// One proxy guard thread at a time.
+static PROXY_GUARD: AtomicBool = AtomicBool::new(false);
 
 /// One entry of the subscription, as shown in the UI.
 #[derive(Debug, Clone, Serialize)]
@@ -124,6 +148,12 @@ impl Xray {
                 client_connections: 0,
                 system_proxy: false,
                 fetched_at: 0,
+                subscription_upload: 0,
+                subscription_download: 0,
+                subscription_total: 0,
+                subscription_expire: 0,
+                subscription_page: String::new(),
+                has_previous: false,
             }),
             logs: Mutex::new(VecDeque::new()),
             op: Mutex::new(()),
@@ -167,6 +197,10 @@ fn config_path() -> PathBuf {
 
 fn subscription_path() -> PathBuf {
     dir().join("subscription.json")
+}
+
+fn previous_subscription_path() -> PathBuf {
+    dir().join("subscription.prev.json")
 }
 
 // ---------- config access ----------
@@ -215,12 +249,18 @@ pub fn status(app: &AppHandle) -> XrayStatus {
     snapshot.http_port = cfg.http_port;
     snapshot.selected = cfg.selected;
     snapshot.installed_version = cfg.installed_version.clone();
+    snapshot.subscription_upload = cfg.subscription_upload;
+    snapshot.subscription_download = cfg.subscription_download;
+    snapshot.subscription_total = cfg.subscription_total;
+    snapshot.subscription_expire = cfg.subscription_expire;
+    snapshot.subscription_page = cfg.subscription_page.clone();
     snapshot.client_connections = if snapshot.state == XrayState::Running {
         client_connections(cfg.socks_port)
     } else {
         0
     };
     snapshot.system_proxy = system_proxy_enabled();
+    snapshot.has_previous = previous_subscription_path().exists();
     let profiles = lock(&state.xray.profiles);
     snapshot.profile_name = profiles
         .get(cfg.selected)
@@ -235,6 +275,55 @@ pub fn status(app: &AppHandle) -> XrayStatus {
         snapshot.state = XrayState::NotInstalled;
     }
     snapshot
+}
+
+/// Cumulative traffic counters from the core's Stats API.
+///
+/// Called by the UI every couple of seconds while the tunnel is up; the counters
+/// reset when the core restarts, which the frontend handles by clamping deltas.
+pub fn traffic(app: &AppHandle) -> Result<TrafficStats, String> {
+    let state = app.state::<AppState>();
+    let running = lock(&state.xray.status).state == XrayState::Running;
+    if !running {
+        return Ok(TrafficStats::default());
+    }
+    let port = STATS_PORT.load(Ordering::Relaxed);
+    let output = Command::new(binary_path())
+        .args(["api", "statsquery", &format!("--server=127.0.0.1:{port}")])
+        .creation_flags(crate::sys::CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("Не удалось прочитать статистику: {e}"))?;
+    if !output.status.success() {
+        return Ok(TrafficStats::default());
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut stats = TrafficStats::default();
+    if let Ok(value) = serde_json::from_str::<Value>(&text) {
+        if let Some(items) = value.get("stat").and_then(Value::as_array) {
+            for item in items {
+                let name = item.get("name").and_then(Value::as_str).unwrap_or_default();
+                if !name.starts_with("inbound>>>") {
+                    continue;
+                }
+                let raw = item
+                    .get("value")
+                    .and_then(|value| {
+                        value
+                            .as_str()
+                            .map(str::to_string)
+                            .or_else(|| value.as_u64().map(|number| number.to_string()))
+                    })
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .unwrap_or(0);
+                if name.ends_with(">>>uplink") {
+                    stats.up += raw;
+                } else if name.ends_with(">>>downlink") {
+                    stats.down += raw;
+                }
+            }
+        }
+    }
+    Ok(stats)
 }
 
 fn set_status(app: &AppHandle, patch: impl FnOnce(&mut XrayStatus)) -> XrayStatus {
@@ -310,51 +399,117 @@ pub fn fetch_subscription(app: &AppHandle) -> Result<Vec<Value>, String> {
     if !response.status().is_success() {
         return Err(format!("Подписка ответила кодом {}.", response.status()));
     }
+    let userinfo = response
+        .headers()
+        .get("subscription-userinfo")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    let page = response
+        .headers()
+        .get("profile-web-page-url")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    let interval = response
+        .headers()
+        .get("profile-update-interval")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    push_log(
+        app,
+        format!(
+            "Подписка: userinfo={:?}, profile-update-interval={:?}, profile-web-page-url={:?}",
+            userinfo.as_deref().unwrap_or(""),
+            interval,
+            page
+        ),
+    );
     let text = response
         .text()
         .map_err(|e| format!("Не удалось прочитать подписку: {e}"))?;
 
-    let value: Value = serde_json::from_str(text.trim()).map_err(|_| {
-        // Not JSON: the provider answered with a human-readable stub such as
-        // "device limit exceeded", which is more useful than a parse error.
-        let hint = decode_text_stub(&text);
-        format!("Подписка не отдала конфиги. Ответ сервера: {hint}")
-    })?;
+    let usable = crate::subscription::parse_response(&text)?;
+    let (upload, download, total, expire) = userinfo
+        .as_deref()
+        .map(parse_userinfo)
+        .unwrap_or((0, 0, 0, 0));
 
-    let list = match value {
-        Value::Array(items) => items,
-        other => vec![other],
-    };
-    let usable: Vec<Value> = list
-        .into_iter()
-        .filter(|item| item.get("outbounds").is_some())
-        .collect();
-    if usable.is_empty() {
-        return Err("В подписке нет ни одного конфига.".into());
+    // Keep one previous set so a bad refresh can be undone.
+    if let Ok(previous) = fs::read_to_string(subscription_path()) {
+        if let Ok(previous_profiles) = serde_json::from_str::<Vec<Value>>(&previous) {
+            if previous_profiles != usable {
+                let _ = fs::copy(subscription_path(), previous_subscription_path());
+            }
+        }
     }
 
     {
         let state = app.state::<AppState>();
         *lock(&state.xray.profiles) = usable.clone();
-        set_status(app, |s| s.fetched_at = now_secs());
+        set_status(app, |s| {
+            s.fetched_at = now_secs();
+            s.subscription_upload = upload;
+            s.subscription_download = download;
+            s.subscription_total = total;
+            s.subscription_expire = expire;
+            s.subscription_page = page.clone();
+            s.has_previous = previous_subscription_path().exists();
+        });
     }
+    let _ = save_cfg(app, |cfg| {
+        cfg.subscription_upload = upload;
+        cfg.subscription_download = download;
+        cfg.subscription_total = total;
+        cfg.subscription_expire = expire;
+        cfg.subscription_page = page.clone();
+    });
     persist_subscription(&usable);
     Ok(usable)
 }
 
-/// A text answer may be base64-wrapped; decode it before showing.
-fn decode_text_stub(text: &str) -> String {
-    let trimmed = text.trim();
-    let printable = trimmed
-        .chars()
-        .filter(|c| !c.is_control())
-        .collect::<String>();
-    if printable.chars().count() > 400 {
-        // Byte slicing can land inside a Cyrillic character and panic.
-        let head: String = printable.chars().take(400).collect();
-        return format!("{head}…");
+/// `upload=...; download=...; total=...; expire=...` from the provider header.
+fn parse_userinfo(value: &str) -> (u64, u64, u64, u64) {
+    let mut upload = 0;
+    let mut download = 0;
+    let mut total = 0;
+    let mut expire = 0;
+    for part in value.split(';') {
+        let Some((key, raw)) = part.trim().split_once('=') else {
+            continue;
+        };
+        let number = raw.trim().parse::<u64>().unwrap_or(0);
+        match key.trim() {
+            "upload" => upload = number,
+            "download" => download = number,
+            "total" => total = number,
+            "expire" => expire = number,
+            _ => {}
+        }
     }
-    printable
+    (upload, download, total, expire)
+}
+
+/// Restores the previous subscription set (one step back).
+pub fn restore_previous(app: &AppHandle) -> Result<usize, String> {
+    let text = fs::read_to_string(previous_subscription_path())
+        .map_err(|_| "Предыдущая подписка не найдена.".to_string())?;
+    let profiles: Vec<Value> =
+        serde_json::from_str(&text).map_err(|e| format!("Предыдущая подписка повреждена: {e}"))?;
+    if profiles.is_empty() {
+        return Err("Предыдущая подписка пуста.".into());
+    }
+    {
+        let state = app.state::<AppState>();
+        *lock(&state.xray.profiles) = profiles.clone();
+        set_status(app, |s| {
+            s.fetched_at = now_secs();
+            s.has_previous = false;
+        });
+    }
+    persist_subscription(&profiles);
+    let _ = fs::remove_file(previous_subscription_path());
+    Ok(profiles.len())
 }
 
 fn persist_subscription(profiles: &[Value]) {
@@ -485,28 +640,117 @@ fn tcp_ping(host: &str, port: u16, timeout: Duration) -> Option<u64> {
 
 pub fn profiles(app: &AppHandle, with_ping: bool) -> Result<Vec<XrayProfile>, String> {
     let list = ensure_profiles(app)?;
+    let endpoints: Vec<(String, u16)> = list
+        .iter()
+        .map(|cfg| outbound_endpoint(cfg).unwrap_or_default())
+        .collect();
+    // Ping every server in parallel: sequential checks against a hostile network
+    // would stall for `profiles * timeout` when most locations are blocked.
+    let pings: Vec<Option<u64>> = if with_ping {
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = endpoints
+                .iter()
+                .map(|(host, port)| {
+                    let host = host.clone();
+                    let port = *port;
+                    scope.spawn(move || {
+                        if host.is_empty() {
+                            None
+                        } else {
+                            tcp_ping(&host, port, Duration::from_millis(2500))
+                        }
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().unwrap_or(None))
+                .collect()
+        })
+    } else {
+        vec![None; endpoints.len()]
+    };
     let mut out = Vec::with_capacity(list.len());
     for (index, cfg) in list.iter().enumerate() {
-        let (host, port) = outbound_endpoint(cfg).unwrap_or_default();
-        let ping_ms = if with_ping && !host.is_empty() {
-            tcp_ping(&host, port, Duration::from_millis(2500))
-        } else {
-            None
-        };
+        let (host, port) = endpoints[index].clone();
         out.push(XrayProfile {
             index,
             name: profile_name(cfg).unwrap_or_else(|| format!("Профиль {}", index + 1)),
             host,
             port,
             scheme: outbound_scheme(cfg),
-            ping_ms,
+            ping_ms: pings[index],
         });
     }
     Ok(out)
 }
 
-// ---------- core binary ----------
+/// Round-trip to one profile, for the background latency refresh.
+pub fn ping_profile(app: &AppHandle, index: usize) -> Result<Option<u64>, String> {
+    let list = ensure_profiles(app)?;
+    let cfg = list
+        .get(index)
+        .ok_or_else(|| format!("Профиль {index} не найден в подписке."))?;
+    let (host, port) = outbound_endpoint(cfg).unwrap_or_default();
+    if host.is_empty() {
+        return Ok(None);
+    }
+    Ok(tcp_ping(&host, port, Duration::from_millis(2500)))
+}
 
+/// One request through the tunnel: the honest "does this location work" check.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct TunnelProbe {
+    pub ok: bool,
+    pub ms: u64,
+}
+
+pub fn probe_tunnel(app: &AppHandle) -> Result<TunnelProbe, String> {
+    let (running, socks_port) = {
+        let state = app.state::<AppState>();
+        let status = lock(&state.xray.status);
+        (status.state == XrayState::Running, status.socks_port)
+    };
+    if !running {
+        return Ok(TunnelProbe { ok: false, ms: 0 });
+    }
+    let output = sys::command("curl.exe")
+        .args([
+            "--silent",
+            "--output",
+            "NUL",
+            "--write-out",
+            "%{http_code} %{time_total}",
+            "--max-time",
+            "5",
+            "--proxy",
+            &format!("socks5h://127.0.0.1:{socks_port}"),
+            "https://www.youtube.com/generate_204",
+        ])
+        .output()
+        .map_err(|e| format!("Проверка туннеля не запустилась: {e}"))?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut parts = text.split_whitespace();
+    let code = parts
+        .next()
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(0);
+    let seconds = parts
+        .next()
+        .and_then(|value| value.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    Ok(TunnelProbe {
+        ok: matches!(code, 200 | 204 | 301 | 302),
+        ms: (seconds * 1000.0).round() as u64,
+    })
+}
+
+/// Persisted toggle for automatic location switching.
+pub fn set_auto_switch(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    save_cfg(app, |cfg| cfg.auto_switch = enabled)
+}
+
+// ---------- core binary ----------
 #[derive(Debug, Deserialize)]
 struct GhAsset {
     name: String,
@@ -1176,6 +1420,42 @@ fn write_config(app: &AppHandle, index: usize) -> Result<PathBuf, String> {
         );
     }
 
+    // Stats API: live counters for the UI. The provider may already define an
+    // `api` inbound or use the default port, so both are detected and relocated.
+    let mut stats_port = 10085u16;
+    if let Some(inbounds) = value.get("inbounds").and_then(Value::as_array) {
+        while inbounds.iter().any(|inbound| {
+            inbound.get("port").and_then(Value::as_u64) == Some(u64::from(stats_port))
+        }) {
+            stats_port += 1;
+        }
+    }
+    value["stats"] = json!({});
+    if !value.get("policy").map(Value::is_object).unwrap_or(false) {
+        value["policy"] = json!({});
+    }
+    if let Some(policy) = value.get_mut("policy").and_then(Value::as_object_mut) {
+        let system = policy.entry("system").or_insert_with(|| json!({}));
+        if let Some(system) = system.as_object_mut() {
+            system.insert("statsInboundUplink".into(), Value::Bool(true));
+            system.insert("statsInboundDownlink".into(), Value::Bool(true));
+            system.insert("statsOutboundUplink".into(), Value::Bool(true));
+            system.insert("statsOutboundDownlink".into(), Value::Bool(true));
+        }
+    }
+    value["api"] = json!({ "tag": "api", "services": ["StatsService"] });
+    if let Some(inbounds) = value.get_mut("inbounds").and_then(Value::as_array_mut) {
+        inbounds.retain(|inbound| inbound.get("tag").and_then(Value::as_str) != Some("api"));
+        inbounds.push(json!({
+            "tag": "api",
+            "listen": "127.0.0.1",
+            "port": stats_port,
+            "protocol": "dokodemo-door",
+            "settings": { "address": "127.0.0.1" }
+        }));
+    }
+    STATS_PORT.store(stats_port, Ordering::Relaxed);
+
     // The routing rules are the "which sites go through the tunnel" policy, so
     // they are replaced by our whitelist instead of the provider's list.
     let (kind, tag) = proxy_target(&value);
@@ -1192,10 +1472,15 @@ fn write_config(app: &AppHandle, index: usize) -> Result<PathBuf, String> {
     }
     if let Some(routing) = value.get_mut("routing").and_then(Value::as_object_mut) {
         routing.remove("script");
-        routing.insert(
-            "rules".into(),
-            build_rules(&ports.proxy_sites, (&kind, &tag), &direct),
-        );
+        let mut rules = build_rules(&ports.proxy_sites, (&kind, &tag), &direct);
+        if let Some(list) = rules.as_array_mut() {
+            // The Stats API handler must never fall through to the whitelist.
+            list.insert(
+                0,
+                json!({ "type": "field", "inboundTag": ["api"], "outboundTag": "api" }),
+            );
+        }
+        routing.insert("rules".into(), rules);
         // `AsIs`: the domain is already known from the HTTP/SOCKS request, and
         // `IPOnDemand` resolved it again for every new host before routing.
         routing.insert("domainStrategy".into(), Value::from("AsIs"));
@@ -1420,6 +1705,7 @@ fn start_locked(app: &AppHandle) -> Result<(), String> {
         }
     }
     spawn_watcher(app.clone(), pid);
+    spawn_proxy_guard(app.clone());
     Ok(())
 }
 
@@ -1450,6 +1736,7 @@ fn spawn_watcher(app: AppHandle, pid: u32) {
             format!("Xray завершился неожиданно ({code}). {tail}")
         };
         // The inbound is gone: a leftover WinINET proxy would break every browser.
+        PROXY_GUARD.store(false, Ordering::SeqCst);
         restore_system_proxy();
         set_status(&app, |s| s.system_proxy = false);
         mark_failed(&app, message);
@@ -1457,7 +1744,64 @@ fn spawn_watcher(app: AppHandle, pid: u32) {
     });
 }
 
+/// Keeps the Windows system proxy pointed at us while the tunnel is up.
+///
+/// Some tools rewrite the WinINET settings on boot or on update; the browsers
+/// then silently stop using the tunnel. The guard re-applies our proxy once per
+/// half a minute and gives up after three failures in a row.
+fn spawn_proxy_guard(app: AppHandle) {
+    if PROXY_GUARD.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(move || {
+        let mut failures = 0u8;
+        let mut restored = false;
+        while PROXY_GUARD.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_secs(30));
+            if !PROXY_GUARD.load(Ordering::SeqCst) {
+                break;
+            }
+            let running = {
+                let state = app.state::<AppState>();
+                let status = lock(&state.xray.status);
+                status.state == XrayState::Running
+            };
+            let cfg = load_cfg(&app);
+            if !running || !cfg.system_proxy {
+                failures = 0;
+                continue;
+            }
+            if proxy_points_at(cfg.http_port) {
+                failures = 0;
+                continue;
+            }
+            if apply_system_proxy(cfg.http_port).is_ok() {
+                failures = 0;
+                if !restored {
+                    restored = true;
+                    let _ = app.emit(
+                        "proxy-guard-restored",
+                        "Системный прокси возвращён: его сняло другое приложение.",
+                    );
+                }
+                continue;
+            }
+            failures += 1;
+            if failures >= 3 {
+                PROXY_GUARD.store(false, Ordering::SeqCst);
+                let _ = app.emit(
+                    "proxy-guard",
+                    "Системный прокси снят другим приложением. Включите «VPN для сайтов» заново.",
+                );
+                break;
+            }
+        }
+        PROXY_GUARD.store(false, Ordering::SeqCst);
+    });
+}
+
 fn stop_locked(app: &AppHandle) -> Result<(), String> {
+    PROXY_GUARD.store(false, Ordering::SeqCst);
     let _ = save_cfg(app, |cfg| cfg.session_running = false);
     let taken = {
         let state = app.state::<AppState>();
@@ -1579,6 +1923,14 @@ fn wininet_delete(name: &str) {
 
 fn system_proxy_active() -> bool {
     wininet_read_dword("ProxyEnable").is_some_and(|value| value != 0)
+}
+
+/// True when WinINET is enabled and points at our own HTTP inbound.
+fn proxy_points_at(port: u16) -> bool {
+    system_proxy_active()
+        && wininet_read_string("ProxyServer")
+            .map(|value| value.contains(&format!("127.0.0.1:{port}")))
+            .unwrap_or(false)
 }
 
 /// Points WinINET at the local HTTP inbound.

@@ -11,6 +11,7 @@ import {
   RefreshCw,
   RotateCw,
   Send,
+  ShieldCheck,
   Zap,
 } from "lucide-vue-next";
 import Card from "../components/ui/card/Card.vue";
@@ -20,6 +21,7 @@ import CardHeader from "../components/ui/card/CardHeader.vue";
 import CardTitle from "../components/ui/card/CardTitle.vue";
 import Button from "../components/ui/button/Button.vue";
 import Toggle from "../components/Toggle.vue";
+import { formatBytes } from "../lib/labels";
 import {
   config,
   copyXrayLink,
@@ -27,12 +29,15 @@ import {
   installXrayCoreFromFile,
   loadXrayProfiles,
   openXrayInTelegram,
+  openReleasePage,
   pingXrayProfiles,
   refreshXray,
   refreshXraySubscription,
   restartXray,
+  restorePreviousSubscription,
   selectXrayProfile,
   setXrayPorts,
+  setXrayAutoSwitch,
   setXrayProxySites,
   setXraySubscription,
   setXraySystemProxy,
@@ -106,6 +111,26 @@ const profilesSorted = computed(() =>
   }),
 );
 const logText = computed(() => xrayLogs.value.join("\n"));
+const selectedPing = computed(() => {
+  const index = xrayStatus.value?.selected;
+  if (index === undefined) return "—";
+  const profile = xrayProfiles.value.find((item) => item.index === index);
+  return profile?.ping_ms == null ? "—" : `${profile.ping_ms} мс`;
+});
+const subscriptionLabel = computed(() => {
+  const status = xrayStatus.value;
+  if (!status?.subscription_total) return "—";
+  const used = (status.subscription_upload ?? 0) + (status.subscription_download ?? 0);
+  const left = Math.max(0, status.subscription_total - used);
+  const expire = status.subscription_expire ?? 0;
+  let until = "";
+  if (expire > 1_000_000_000) {
+    until = ` · до ${new Date(expire * 1000).toLocaleDateString("ru-RU")}`;
+  } else if (expire > 0) {
+    until = ` · ${Math.ceil(expire / 86_400)} дн.`;
+  }
+  return `${formatBytes(left)} из ${formatBytes(status.subscription_total)}${until}`;
+});
 
 watch(
   () => config.value?.xray,
@@ -131,8 +156,9 @@ onMounted(async () => {
   } catch (error) {
     console.warn("Не удалось получить наборы сайтов", error);
   }
-  if (config.value?.xray.subscription_url) {
-    await loadXrayProfiles(false);
+  if (config.value?.xray.subscription_url && !xrayProfiles.value.length) {
+    // First visit: ping every location in parallel so the list is not "n/a".
+    await loadXrayProfiles(true);
   }
 });
 
@@ -412,6 +438,22 @@ function pingLabel(ms: number | null): string {
               (xrayStatus?.binary_present ? "установлено" : "не установлено")
             }}</strong>
           </div>
+          <div>
+            <span>Пинг</span>
+            <strong>{{ selectedPing }}</strong>
+          </div>
+          <div v-if="xrayStatus?.subscription_total">
+            <span>Подписка</span>
+            <strong>{{ subscriptionLabel }}</strong>
+            <button
+              v-if="xrayStatus?.subscription_page"
+              class="vpn-page-link"
+              type="button"
+              @click="openReleasePage(xrayStatus.subscription_page)"
+            >
+              Личный кабинет
+            </button>
+          </div>
         </div>
 
         <label class="field field-wide">
@@ -497,41 +539,79 @@ function pingLabel(ms: number | null): string {
           <span>{{ xrayError }}</span>
         </div>
 
+        <div v-if="running && !telegramConnected" class="vpn-telegram-prompt">
+          <div class="vpn-hint-icon"><Send :size="18" /></div>
+          <div v-if="telegramOnProxy" class="vpn-hint-text">
+            <strong>Telegram сидит на MTProto-прокси, а не на VPN</strong>
+            <span>
+              В Telegram может быть активен только один прокси, поэтому трафик идёт через MTProto.
+              Переключить Telegram на VPN?
+            </span>
+          </div>
+          <div v-else class="vpn-hint-text">
+            <strong>Осталось переключить Telegram на VPN</strong>
+            <span
+              >Нажми кнопку — Telegram откроет своё окно с готовым прокси, останется
+              подтвердить.</span
+            >
+          </div>
+          <Button size="sm" @click="openXrayInTelegram">
+            {{ telegramOnProxy ? "Переключить на VPN" : "Подключить Telegram" }}
+          </Button>
+        </div>
+
         <div class="vpn-locations">
           <div class="vpn-locations-head">
             <strong>Локации</strong>
-            <span>{{ xrayProfiles.length }} из подписки</span>
+            <span>{{ xrayProfiles.length }} из подписки · пинг обновляется сам</span>
           </div>
           <p v-if="!xrayProfiles.length" class="vpn-hint">
             Список пуст — нажмите «Обновить подписку» после вставки ссылки.
           </p>
-          <div v-else class="vpn-list">
-            <button
-              v-for="profile in profilesSorted"
-              :key="profile.index"
-              type="button"
-              class="vpn-row"
-              :class="{ selected: profile.index === (xrayStatus?.selected ?? -1) }"
-              :aria-pressed="profile.index === (xrayStatus?.selected ?? -1)"
-              :disabled="xrayBusy"
-              @click="pick(profile.index)"
-            >
-              <span class="vpn-row-name">
-                <Check
-                  v-if="profile.index === (xrayStatus?.selected ?? -1)"
-                  class="vpn-row-check"
-                  :size="14"
-                  :stroke-width="2.6"
-                  aria-hidden="true"
-                />
-                {{ profile.name }}
-              </span>
-              <span class="vpn-row-scheme">{{ profile.scheme }}</span>
-              <span class="vpn-row-ping">{{ pingLabel(profile.ping_ms) }}</span>
-            </button>
-          </div>
+          <template v-else>
+            <div class="vpn-list-head" aria-hidden="true">
+              <span>Локация</span>
+              <span>Протокол</span>
+              <span>Пинг</span>
+            </div>
+            <div class="vpn-list">
+              <button
+                v-for="profile in profilesSorted"
+                :key="profile.index"
+                type="button"
+                class="vpn-row"
+                :class="{ selected: profile.index === (xrayStatus?.selected ?? -1) }"
+                :aria-pressed="profile.index === (xrayStatus?.selected ?? -1)"
+                :disabled="xrayBusy"
+                @click="pick(profile.index)"
+              >
+                <span class="vpn-row-name">
+                  <Check
+                    v-if="profile.index === (xrayStatus?.selected ?? -1)"
+                    class="vpn-row-check"
+                    :size="14"
+                    :stroke-width="2.6"
+                    aria-hidden="true"
+                  />
+                  {{ profile.name }}
+                </span>
+                <span class="vpn-row-scheme">{{ profile.scheme }}</span>
+                <span class="vpn-row-ping">{{ pingLabel(profile.ping_ms) }}</span>
+              </button>
+            </div>
+          </template>
         </div>
       </CardContent>
+    </Card>
+
+    <Card v-if="running && config?.xray.system_proxy" class="vpn-card vpn-guard-card">
+      <div class="vpn-hint-icon"><ShieldCheck :size="18" /></div>
+      <div class="vpn-hint-text">
+        <strong>Системный прокси под защитой</strong>
+        <span>
+          Если его снимет другое приложение или Windows, приложение вернёт настройку само.
+        </span>
+      </div>
     </Card>
 
     <Card v-if="running && !config?.xray.system_proxy" class="vpn-card vpn-hint-card">
@@ -544,26 +624,6 @@ function pingLabel(ms: number | null): string {
         </span>
       </div>
       <Button size="sm" :disabled="xrayBusy" @click="toggleSystemProxy(true)">Включить</Button>
-    </Card>
-
-    <Card v-if="running && !telegramConnected" class="vpn-card vpn-hint-card">
-      <div class="vpn-hint-icon"><Send :size="18" /></div>
-      <div v-if="telegramOnProxy" class="vpn-hint-text">
-        <strong>Telegram сидит на MTProto-прокси, а не на VPN</strong>
-        <span>
-          В Telegram может быть активен только один прокси, поэтому трафик идёт через MTProto.
-          Переключить Telegram на VPN?
-        </span>
-      </div>
-      <div v-else class="vpn-hint-text">
-        <strong>Осталось переключить Telegram на VPN</strong>
-        <span
-          >Нажми кнопку — Telegram откроет своё окно с готовым прокси, останется подтвердить.</span
-        >
-      </div>
-      <Button size="sm" @click="openXrayInTelegram">
-        {{ telegramOnProxy ? "Переключить на VPN" : "Подключить Telegram" }}
-      </Button>
     </Card>
 
     <Card v-if="running && telegramConnected" class="vpn-card vpn-ok-card">
@@ -729,6 +789,23 @@ function pingLabel(ms: number | null): string {
               Порты локального прокси, к которому подключается Telegram. Смена перезапускает VPN.
               VPN включится при следующем запуске, если был включён при выходе.
             </p>
+            <Toggle
+              label="Автопереключение локаций"
+              hint="Если туннель не отвечает 5 минут — переключиться на самую быструю живую локацию"
+              :checked="config?.xray.auto_switch"
+              :disabled="xrayBusy"
+              @change="setXrayAutoSwitch"
+            />
+            <Button
+              v-if="xrayStatus?.has_previous"
+              variant="secondary"
+              size="sm"
+              class="self-start"
+              :disabled="xrayBusy"
+              @click="restorePreviousSubscription"
+            >
+              Вернуть предыдущую подписку
+            </Button>
           </div>
 
           <div class="vpn-log-head">
@@ -833,7 +910,7 @@ function pingLabel(ms: number | null): string {
 
 .vpn-meta {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 8px;
 }
 
@@ -864,6 +941,22 @@ function pingLabel(ms: number | null): string {
   white-space: nowrap;
 }
 
+.vpn-page-link {
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vpn-page-link:hover {
+  text-decoration: underline;
+}
+
 .vpn-actions {
   display: flex;
   flex-wrap: wrap;
@@ -878,6 +971,27 @@ function pingLabel(ms: number | null): string {
   border-color: color-mix(in oklab, var(--warn) 45%, transparent);
   background: var(--warn-soft);
   color: var(--warn);
+}
+
+/* The Telegram prompt lives inside the subscription card, right above the list. */
+.vpn-telegram-prompt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in oklab, var(--warn) 45%, transparent);
+  border-radius: 12px;
+  background: var(--warn-soft);
+}
+
+/* The system proxy guard is active: informational, not a warning. */
+.vpn-guard-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-color: color-mix(in oklab, var(--accent) 35%, transparent);
+  background: var(--accent-soft);
 }
 
 /* Telegram is already tunnelling: the banner turns from a task into a status. */
@@ -1040,6 +1154,24 @@ function pingLabel(ms: number | null): string {
   padding-right: 4px;
 }
 
+.vpn-list-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  padding: 0 12px 4px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.vpn-list-head span:last-child {
+  min-width: 56px;
+  text-align: right;
+}
+
+.vpn-list > * {
+  flex: 0 0 auto;
+}
+
 .vpn-site-row {
   display: flex;
   flex-wrap: wrap;
@@ -1107,6 +1239,10 @@ function pingLabel(ms: number | null): string {
   gap: 2px;
   max-height: 180px;
   overflow-y: auto;
+}
+
+.vpn-suggest-list > * {
+  flex: 0 0 auto;
 }
 
 .vpn-suggest-row {
@@ -1283,6 +1419,12 @@ function pingLabel(ms: number | null): string {
   font-size: 12px;
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.vpn-log-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .vpn-log-head {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import type { StrategyRowData } from "../store";
-import { verdictLabel } from "../lib/labels";
+import { strategyCause, verdictLabel } from "../lib/labels";
 
 const props = defineProps<{
   row: StrategyRowData;
@@ -14,6 +15,10 @@ const emit = defineEmits<{
   apply: [];
   delete: [];
 }>();
+
+const cause = computed(() =>
+  props.row.bench && props.row.bench.verdict !== "works" ? strategyCause(props.row.bench) : "",
+);
 
 function onKeydown(event: KeyboardEvent) {
   // Keys pressed on the nested Apply/Delete buttons must not select the row.
@@ -69,6 +74,7 @@ function onKeydown(event: KeyboardEvent) {
         <span class="verdict" :class="props.row.bench.verdict">
           {{ verdictLabel[props.row.bench.verdict] }}
         </span>
+        <span v-if="cause" class="row-cause" :title="cause">{{ cause }}</span>
       </div>
     </div>
 

@@ -56,6 +56,11 @@ pub fn get_tgws_logs(app: tauri::AppHandle) -> AppResult<Vec<String>> {
 }
 
 #[tauri::command]
+pub fn diagnose_tgws(app: tauri::AppHandle) -> AppResult<tgws::TgwsDiagnosis> {
+    Ok(tgws::diagnose(&app))
+}
+
+#[tauri::command]
 pub async fn check_tgws_update(
     app: tauri::AppHandle,
     force: Option<bool>,

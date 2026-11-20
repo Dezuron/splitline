@@ -58,6 +58,20 @@ export interface TgwsStatus {
   client_connections_total: number;
 }
 
+export interface TgwsDiagnosis {
+  binary: boolean;
+  supervisor_running: boolean;
+  process_running: boolean;
+  port_open: boolean;
+  port_conflict: boolean;
+  clients: number;
+  log_errors: number;
+  last_error_line: string | null;
+  last_error: string | null;
+  hint: string;
+  kind: "ok" | "binary" | "port" | "stopped" | "not_connected" | "blocked" | "unknown";
+}
+
 export type XrayState = "stopped" | "starting" | "running" | "stopping" | "error" | "not_installed";
 
 export interface XrayStatus {
@@ -73,6 +87,12 @@ export interface XrayStatus {
   client_connections: number;
   system_proxy: boolean;
   fetched_at: number;
+  subscription_upload: number;
+  subscription_download: number;
+  subscription_total: number;
+  subscription_expire: number;
+  subscription_page: string;
+  has_previous: boolean;
 }
 
 export interface XrayProfile {
@@ -104,6 +124,8 @@ export interface XrayConfigView {
   installed_version: string;
   /** Unix time of the last domain-list update, 0 when never updated. */
   bases_updated_at: number;
+  /** Switch to the fastest live location when the current one stops working. */
+  auto_switch: boolean;
 }
 
 /** A long download the UI should show progress for. */

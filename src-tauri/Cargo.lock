@@ -5373,7 +5373,7 @@ dependencies = [
 
 [[package]]
 name = "zapret-ui"
-version = "2.0.5"
+version = "2.1.0"
 dependencies = [
  "dirs 5.0.1",
  "getrandom 0.2.17",

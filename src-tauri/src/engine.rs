@@ -111,7 +111,7 @@ fn stop_service_named(name: &str) -> Result<(), String> {
 /// Whether a process with this image name is running, read from a Toolhelp
 /// snapshot instead of spawning `tasklist.exe` (same shutdown reasoning as
 /// [`service_state`]).
-fn image_running(image: &str) -> bool {
+pub(crate) fn image_running(image: &str) -> bool {
     unsafe {
         let snapshot: HANDLE = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if snapshot == INVALID_HANDLE_VALUE || snapshot.is_null() {
