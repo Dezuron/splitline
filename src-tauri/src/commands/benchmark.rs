@@ -548,6 +548,12 @@ pub fn get_last_bench(state: State<'_, AppState>) -> AppResult<Option<BenchSumma
     Ok(bench::last_history())
 }
 
+/// The last runs, oldest first: the history sparkline on the home page.
+#[tauri::command]
+pub fn get_bench_history() -> AppResult<Vec<BenchSummary>> {
+    Ok(bench::load_history())
+}
+
 /// Verify a freshly applied strategy after a minute and roll back if it turned
 /// out to be broken. Runs in the background so it also works with the window hidden.
 fn spawn_watchdog(app: tauri::AppHandle, applied: String, previous: String) {

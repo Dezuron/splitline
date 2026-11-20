@@ -11,6 +11,7 @@ import type {
   QuickCheck,
   TgwsNotice,
   TgwsStatus,
+  TgwsDiagnosis,
   TgwsUpdateInfo,
   UpdateInfo,
   WhatsNew,
@@ -48,6 +49,17 @@ import {
   generatedRows,
   tgwsStatus,
   tgwsUpdate,
+  tgwsDiagnosis,
+  tgwsDiagnosing,
+  benchHistory,
+  trafficDown,
+  trafficSamples,
+  trafficTotalDown,
+  trafficTotalUp,
+  trafficUp,
+  tunnelOk,
+  tunnelPing,
+  tunnelSamples,
   tgwsLogs,
   tgwsLink,
   tgwsBusy,
@@ -65,6 +77,15 @@ import {
 // ---------- polling ----------
 
 let pollTimer: number | null = null;
+let trafficTimer: number | null = null;
+let pingTimer: number | null = null;
+let probeTimer: number | null = null;
+let refreshTimer: number | null = null;
+let tunnelFailures = 0;
+let manualPickAt = 0;
+let lastTrafficUp = 0;
+let lastTrafficDown = 0;
+const TRAFFIC_INTERVAL_MS = 2000;
 let appUpdateTimer: number | null = null;
 const downloadTimers = new Map<string, number>();
 let lastRefreshError = 0;
@@ -158,12 +179,164 @@ function stopPolling() {
   }
 }
 
+/** Reads the core's cumulative counters and turns the deltas into speeds. */
+async function pollTraffic() {
+  if (document.hidden) return;
+  if (xrayStatus.value?.state !== "running") {
+    if (trafficSamples.value.length) {
+      trafficSamples.value = [];
+      trafficUp.value = 0;
+      trafficDown.value = 0;
+      trafficTotalUp.value = 0;
+      trafficTotalDown.value = 0;
+      lastTrafficUp = 0;
+      lastTrafficDown = 0;
+    }
+    return;
+  }
+  try {
+    const stats = await invoke<{ up: number; down: number }>("get_xray_traffic");
+    // Counters restart with the core; a smaller value means "since restart".
+    const deltaUp = stats.up >= lastTrafficUp ? stats.up - lastTrafficUp : stats.up;
+    const deltaDown = stats.down >= lastTrafficDown ? stats.down - lastTrafficDown : stats.down;
+    lastTrafficUp = stats.up;
+    lastTrafficDown = stats.down;
+    trafficTotalUp.value = stats.up;
+    trafficTotalDown.value = stats.down;
+    const seconds = TRAFFIC_INTERVAL_MS / 1000;
+    trafficUp.value = deltaUp / seconds;
+    trafficDown.value = deltaDown / seconds;
+    trafficSamples.value = [
+      ...trafficSamples.value.slice(-(150 - 1)),
+      { up: trafficUp.value, down: trafficDown.value },
+    ];
+  } catch {
+    // The core may still be starting; keep the previous sample.
+  }
+}
+
+function startTrafficPolling() {
+  if (trafficTimer !== null) return;
+  void pollTraffic();
+  trafficTimer = window.setInterval(pollTraffic, TRAFFIC_INTERVAL_MS);
+}
+
+function stopTrafficPolling() {
+  if (trafficTimer !== null) {
+    clearInterval(trafficTimer);
+    trafficTimer = null;
+  }
+}
+
+/** Refreshes every location's latency in parallel and measures the tunnel. */
+function startPingTimer() {
+  if (pingTimer !== null) return;
+  void sweepPings();
+  pingTimer = window.setInterval(() => {
+    if (!document.hidden) void sweepPings();
+  }, 5 * 60_000);
+}
+
+async function sweepPings() {
+  try {
+    xrayProfiles.value = await invoke<XrayProfile[]>("get_xray_profiles", { withPing: true });
+  } catch {
+    // The subscription may not be loaded yet; the next sweep will retry.
+  }
+}
+
+function stopPingTimer() {
+  if (pingTimer !== null) {
+    clearInterval(pingTimer);
+    pingTimer = null;
+  }
+}
+
+/** One request through the tunnel per minute: availability, SLO and failover. */
+async function probeTunnel() {
+  if (document.hidden) return;
+  if (xrayStatus.value?.state !== "running") return;
+  try {
+    const probe = await invoke<{ ok: boolean; ms: number }>("get_xray_tunnel_probe");
+    tunnelOk.value = probe.ok;
+    if (probe.ok) tunnelPing.value = probe.ms;
+    tunnelSamples.value = [...tunnelSamples.value.slice(-(60 - 1)), probe.ok];
+    if (probe.ok) {
+      tunnelFailures = 0;
+      return;
+    }
+    tunnelFailures += 1;
+    // Five failed minutes in a row: switch, but never right after a manual pick.
+    if (
+      tunnelFailures >= 5 &&
+      config.value?.xray.auto_switch &&
+      Date.now() - manualPickAt > 5 * 60_000
+    ) {
+      tunnelFailures = 0;
+      const best = [...xrayProfiles.value]
+        .filter(
+          (profile) => profile.ping_ms != null && profile.index !== xrayStatus.value?.selected,
+        )
+        .sort((left, right) => (left.ping_ms ?? 0) - (right.ping_ms ?? 0))[0];
+      if (best) {
+        toast("warning", `Локация не отвечает — переключаюсь на «${best.name}».`);
+        await selectXrayProfile(best.index);
+      } else {
+        toast("warning", "Нет доступных локаций — проверьте сеть или подписку.");
+      }
+    }
+  } catch {
+    // A failed probe is expected while the core is starting; the next tick retries.
+  }
+}
+
+function startProbeTimer() {
+  if (probeTimer !== null) return;
+  void probeTunnel();
+  probeTimer = window.setInterval(probeTunnel, 60_000);
+}
+
+function stopProbeTimer() {
+  if (probeTimer !== null) {
+    clearInterval(probeTimer);
+    probeTimer = null;
+  }
+}
+
+/** Refreshes the subscription in the background when it is older than 12 hours. */
+function startRefreshTimer() {
+  if (refreshTimer !== null) return;
+  refreshTimer = window.setInterval(() => {
+    if (document.hidden) return;
+    const current = xrayStatus.value;
+    const url = config.value?.xray.subscription_url;
+    if (!current || !url || xrayBusy.value) return;
+    if (Date.now() / 1000 - current.fetched_at < 12 * 3600) return;
+    void refreshXraySubscription(false).catch(() => undefined);
+  }, 3600_000);
+}
+
+function stopRefreshTimer() {
+  if (refreshTimer !== null) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+}
+
 function onVisibilityChange() {
   if (document.hidden) {
     stopPolling();
+    stopTrafficPolling();
+    stopPingTimer();
+    stopProbeTimer();
+    stopRefreshTimer();
   } else {
     void refreshInternal(true);
     startPolling();
+    startTrafficPolling();
+    startPingTimer();
+    startProbeTimer();
+    startRefreshTimer();
   }
 }
 
@@ -206,6 +379,14 @@ export async function initStore() {
     await listen<XrayStatus>("xray-status", (event) => {
       xrayStatus.value = event.payload;
     }),
+    await listen<string>("proxy-guard", (event) => {
+      toast("warning", event.payload);
+      void refreshXray();
+    }),
+    await listen<string>("proxy-guard-restored", (event) => {
+      toast("info", event.payload);
+      void refreshXray();
+    }),
     await listen<string>("xray-log", (event) => {
       xrayLogs.value = tgwsLogTail([...xrayLogs.value, event.payload]);
     }),
@@ -229,6 +410,11 @@ export async function initStore() {
   } catch (error) {
     console.warn("Не удалось загрузить историю проверок", error);
   }
+  try {
+    benchHistory.value = await invoke<BenchSummary[]>("get_bench_history");
+  } catch (error) {
+    console.warn("Не удалось загрузить историю прогонов", error);
+  }
   if (config.value?.check_updates) {
     void checkUpdate();
   }
@@ -238,6 +424,10 @@ export async function initStore() {
     }, 3000);
   }
   startPolling();
+  startTrafficPolling();
+  startPingTimer();
+  startProbeTimer();
+  startRefreshTimer();
   document.addEventListener("visibilitychange", onVisibilityChange);
 }
 
@@ -287,6 +477,10 @@ function scheduleDownloadRemoval(id: string, delay: number) {
 
 export function disposeStore() {
   stopPolling();
+  stopTrafficPolling();
+  stopPingTimer();
+  stopProbeTimer();
+  stopRefreshTimer();
   if (appUpdateTimer !== null) {
     clearTimeout(appUpdateTimer);
     appUpdateTimer = null;
@@ -796,6 +990,19 @@ async function refreshTgwsLink() {
   }
 }
 
+/** Runs the Telegram proxy diagnosis on demand. */
+export async function diagnoseTgws() {
+  if (tgwsDiagnosing.value) return;
+  tgwsDiagnosing.value = true;
+  try {
+    tgwsDiagnosis.value = await invoke<TgwsDiagnosis>("diagnose_tgws");
+  } catch (error) {
+    toast("error", String(error));
+  } finally {
+    tgwsDiagnosing.value = false;
+  }
+}
+
 export async function checkTgwsUpdate(silent = true, force = false): Promise<boolean> {
   if (tgwsChecking.value) return false;
   tgwsChecking.value = true;
@@ -1091,6 +1298,8 @@ export function setXraySubscription(url: string) {
 }
 
 export function selectXrayProfile(index: number) {
+  // A manual pick is honoured for five minutes before auto-switch may act.
+  manualPickAt = Date.now();
   return setXraySetting<void>("select_xray_profile", { index });
 }
 
@@ -1188,6 +1397,27 @@ export async function setXrayProxySites(sites: string[]) {
 /** Enables/disables the Windows system proxy (browsers follow the same rules). */
 export async function setXraySystemProxy(enabled: boolean) {
   return setXraySetting<void>("set_xray_system_proxy", { enabled });
+}
+
+/** Persisted toggle: switch to the fastest live location when the tunnel fails. */
+export async function setXrayAutoSwitch(enabled: boolean) {
+  return setXraySetting<void>("set_xray_auto_switch", { enabled });
+}
+
+/** Rolls the subscription back one fetch, keeping the profiles in sync. */
+export async function restorePreviousSubscription() {
+  if (xrayBusy.value) return;
+  xrayBusy.value = true;
+  try {
+    const count = await invoke<number>("restore_previous_subscription");
+    await loadXrayProfiles(false);
+    await refreshXray();
+    toast("success", `Возвращена предыдущая подписка: профилей — ${count}.`);
+  } catch (error) {
+    toast("error", String(error));
+  } finally {
+    xrayBusy.value = false;
+  }
 }
 
 /** Merges a domain list from a text file into the whitelist. */

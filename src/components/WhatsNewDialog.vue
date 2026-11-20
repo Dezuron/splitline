@@ -26,15 +26,10 @@ function onOpenChange(value: boolean) {
         <MarkdownBody v-if="whatsNew" class="whats-new-notes" :source="whatsNew.notes" />
 
         <div class="modal-actions">
-          <Button
-            v-if="whatsNew"
-            variant="secondary"
-            size="sm"
-            @click="openReleasePage(whatsNew.url)"
-          >
+          <Button v-if="whatsNew" variant="secondary" @click="openReleasePage(whatsNew.url)">
             Открыть релиз
           </Button>
-          <Button @click="dismissWhatsNew">Закрыть</Button>
+          <Button variant="secondary" @click="dismissWhatsNew">Закрыть</Button>
         </div>
       </DialogContent>
     </DialogPortal>

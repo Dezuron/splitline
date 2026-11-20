@@ -9,15 +9,12 @@ import CardDescription from "../components/ui/card/CardDescription.vue";
 import CardHeader from "../components/ui/card/CardHeader.vue";
 import CardTitle from "../components/ui/card/CardTitle.vue";
 import Switch from "../components/ui/switch/Switch.vue";
+import Sparkline from "../components/Sparkline.vue";
+import { formatBytes } from "../lib/labels";
 import {
   appUpdate,
-  benchDate,
-  benchSummary,
   benchRunning,
   busy,
-  checkAllUpdates,
-  checkingAppUpdate,
-  checkingUpdate,
   config,
   running,
   runtimeReady,
@@ -25,7 +22,6 @@ import {
   statusText,
   statusTone,
   tgwsBusy,
-  tgwsChecking,
   tgwsRunning,
   tgwsStateText,
   tgwsStatus,
@@ -33,6 +29,15 @@ import {
   toggleStart,
   toggleTgws,
   toggleXray,
+  trafficDown,
+  trafficSamples,
+  trafficTotalDown,
+  trafficTotalUp,
+  trafficUp,
+  tunnelErrors,
+  tunnelOk,
+  tunnelPing,
+  tunnelSlo,
   updateInfo,
   xrayBusy,
   xrayStatus,
@@ -46,18 +51,9 @@ const zapretState = computed(() => {
   return running.value ? "Включён" : "Выключен";
 });
 
-const bestScore = computed(() => {
-  const best = benchSummary.value?.best;
-  if (!best) return null;
-  return benchSummary.value?.results.find((result) => result.name === best)?.score ?? null;
-});
-
 const appHasUpdate = computed(() => !!appUpdate.value?.available);
 const zapretHasUpdate = computed(() => !!updateInfo.value?.update_available);
 const tgwsHasUpdate = computed(() => !!tgwsUpdate.value?.has_update);
-const checkingAllUpdates = computed(
-  () => checkingAppUpdate.value || checkingUpdate.value || tgwsChecking.value,
-);
 
 const updatesAvailable = computed(
   () => [appHasUpdate.value, zapretHasUpdate.value, tgwsHasUpdate.value].filter(Boolean).length,
@@ -96,6 +92,15 @@ const telegramHint = computed(() => {
     ? "Прокси включён"
     : "Прокси включён · Telegram не подключён";
 });
+
+const downSeries = computed(() => trafficSamples.value.map((sample) => sample.down));
+const upSeries = computed(() => trafficSamples.value.map((sample) => sample.up));
+const trafficMax = computed(() => Math.max(1, ...downSeries.value, ...upSeries.value));
+const sessionBytes = computed(() => trafficTotalDown.value + trafficTotalUp.value);
+
+function speedLabel(bytes: number): string {
+  return bytes < 1 ? "0 Б/с" : `${formatBytes(bytes)}/с`;
+}
 </script>
 
 <template>
@@ -115,6 +120,66 @@ const telegramHint = computed(() => {
         >
           {{ updatesLabel }}
         </Button>
+      </div>
+    </Card>
+
+    <Card v-if="vpnRunning" class="traffic-card">
+      <div class="traffic-head">
+        <div class="traffic-title-block">
+          <span class="eyebrow">VPN</span>
+          <strong class="traffic-title">Трафик через туннель</strong>
+        </div>
+        <span class="muted">только то, что идёт через VPN</span>
+      </div>
+
+      <div class="traffic-body">
+        <div class="traffic-numbers">
+          <div class="traffic-number">
+            <span class="traffic-arrow down" aria-hidden="true">↓</span>
+            <strong>{{ speedLabel(trafficDown) }}</strong>
+            <span class="traffic-word">загрузка</span>
+          </div>
+          <div class="traffic-number">
+            <span class="traffic-arrow up" aria-hidden="true">↑</span>
+            <strong>{{ speedLabel(trafficUp) }}</strong>
+            <span class="traffic-word">отдача</span>
+          </div>
+          <span class="muted">
+            Соединений: {{ xrayStatus?.client_connections ?? 0 }} · Сессия:
+            {{ formatBytes(sessionBytes) || "0 Б" }}
+          </span>
+          <span class="muted">
+            Пинг: {{ tunnelOk ? tunnelPing + " мс" : "—" }} · Ошибки: {{ tunnelErrors }} · SLO:
+            {{ tunnelSlo }}%
+          </span>
+        </div>
+
+        <div v-if="trafficSamples.length" class="traffic-chart">
+          <div
+            class="traffic-series down"
+            title="Загрузка: сколько данных приходит из туннеля в секунду"
+          >
+            <span class="series-name">Загрузка</span>
+            <Sparkline
+              :values="downSeries"
+              :max="trafficMax"
+              class="traffic-down"
+              style="height: 26px"
+            />
+          </div>
+          <div class="traffic-series up" title="Отдача: сколько данных уходит в туннель в секунду">
+            <span class="series-name">Отдача</span>
+            <Sparkline
+              :values="upSeries"
+              :max="trafficMax"
+              class="traffic-up"
+              style="height: 26px"
+            />
+          </div>
+        </div>
+        <p v-else class="muted traffic-empty">
+          Ждём первый замер — данные обновляются каждые 2 секунды.
+        </p>
       </div>
     </Card>
 
@@ -219,40 +284,6 @@ const telegramHint = computed(() => {
             <ArrowUpRight :size="13" />
           </Button>
         </CardContent>
-      </Card>
-    </div>
-
-    <div class="home-rows">
-      <Card class="home-row">
-        <div class="home-row-main">
-          <span class="eyebrow">Обновления</span>
-          <strong>{{ updatesLabel }}</strong>
-        </div>
-        <div class="home-row-actions">
-          <Button
-            variant="outline"
-            size="sm"
-            :disabled="checkingAllUpdates || benchRunning"
-            @click="checkAllUpdates"
-          >
-            {{ checkingAllUpdates ? "Проверка…" : "Проверить" }}
-          </Button>
-          <Button variant="ghost" size="sm" @click="router.push('/settings')">Настройки</Button>
-        </div>
-      </Card>
-
-      <Card v-if="benchSummary" class="home-row">
-        <div class="home-row-main">
-          <span class="eyebrow">Последняя проверка</span>
-          <strong>{{ benchSummary.best || "Без победителя" }}</strong>
-        </div>
-        <div class="home-row-actions">
-          <span class="muted">Балл {{ bestScore ?? "—" }} · {{ benchDate }}</span>
-          <Button variant="ghost" size="sm" @click="router.push('/zapret')">
-            К стратегиям
-            <ArrowUpRight :size="13" />
-          </Button>
-        </div>
       </Card>
     </div>
   </div>

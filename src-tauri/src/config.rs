@@ -138,6 +138,21 @@ pub struct XrayConfig {
     pub installed_version: String,
     /// Unix time of the last successful domain-list update (`geosite.dat`).
     pub bases_updated_at: u64,
+    /// Switch to the fastest live location when the current one stops working.
+    #[serde(default)]
+    pub auto_switch: bool,
+    /// Last `subscription-userinfo` values, kept across restarts.
+    #[serde(default)]
+    pub subscription_upload: u64,
+    #[serde(default)]
+    pub subscription_download: u64,
+    #[serde(default)]
+    pub subscription_total: u64,
+    #[serde(default)]
+    pub subscription_expire: u64,
+    /// Provider's account page (`profile-web-page-url`), empty when absent.
+    #[serde(default)]
+    pub subscription_page: String,
 }
 
 impl Default for XrayConfig {
@@ -155,6 +170,12 @@ impl Default for XrayConfig {
             system_proxy: false,
             installed_version: String::new(),
             bases_updated_at: 0,
+            auto_switch: false,
+            subscription_upload: 0,
+            subscription_download: 0,
+            subscription_total: 0,
+            subscription_expire: 0,
+            subscription_page: String::new(),
         }
     }
 }

@@ -11,6 +11,36 @@ pub fn get_xray_status(app: tauri::AppHandle) -> AppResult<XrayStatus> {
     Ok(xray::status(&app))
 }
 
+/// Cumulative traffic counters for the chart; zeros while the tunnel is down.
+#[tauri::command]
+pub fn get_xray_traffic(app: tauri::AppHandle) -> AppResult<xray::TrafficStats> {
+    Ok(xray::traffic(&app)?)
+}
+
+/// Ping the selected profile only, without touching the other rows.
+#[tauri::command]
+pub async fn ping_xray_profile(app: tauri::AppHandle, index: usize) -> AppResult<Option<u64>> {
+    Ok(xray::ping_profile(&app, index)?)
+}
+
+/// One request through the tunnel: the honest "does this location work" check.
+#[tauri::command]
+pub fn get_xray_tunnel_probe(app: tauri::AppHandle) -> AppResult<xray::TunnelProbe> {
+    Ok(xray::probe_tunnel(&app)?)
+}
+
+#[tauri::command]
+pub async fn set_xray_auto_switch(app: tauri::AppHandle, enabled: bool) -> AppResult<()> {
+    xray::set_auto_switch(&app, enabled)?;
+    Ok(())
+}
+
+/// Restores the previous subscription; returns how many profiles it contains.
+#[tauri::command]
+pub async fn restore_previous_subscription(app: tauri::AppHandle) -> AppResult<usize> {
+    Ok(xray::restore_previous(&app)?)
+}
+
 #[tauri::command]
 pub async fn get_xray_profiles(
     app: tauri::AppHandle,

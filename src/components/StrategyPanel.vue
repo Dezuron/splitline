@@ -154,6 +154,7 @@ import {
 
     <div v-if="benchSummary?.results.length" class="result-meta">
       <span>Проверено {{ benchDate }} · {{ benchHostCount }} хостов</span>
+      <span class="legend">причина показывается у «частично» и «не работает»</span>
     </div>
 
     <TransitionGroup

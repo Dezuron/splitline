@@ -56,6 +56,7 @@ const configFixture: ConfigView = {
     system_proxy: false,
     installed_version: "",
     bases_updated_at: 0,
+    auto_switch: false,
   },
 };
 

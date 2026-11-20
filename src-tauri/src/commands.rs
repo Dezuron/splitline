@@ -86,6 +86,7 @@ pub struct XrayConfigView {
     pub installed_version: String,
     /// Unix time of the last domain-list update, 0 when never updated.
     pub bases_updated_at: u64,
+    pub auto_switch: bool,
 }
 
 #[derive(Serialize)]
@@ -244,6 +245,7 @@ pub fn get_config(state: State<'_, AppState>) -> AppResult<ConfigView> {
             system_proxy: cfg.xray.system_proxy,
             installed_version: cfg.xray.installed_version.clone(),
             bases_updated_at: cfg.xray.bases_updated_at,
+            auto_switch: cfg.xray.auto_switch,
         },
     })
 }

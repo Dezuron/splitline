@@ -694,6 +694,12 @@ input[type="range"] {
   padding-right: 4px;
 }
 
+/* Flex children of a scrolling column must not shrink below their content,
+   otherwise the second line of a row overlaps the next row. */
+.strategy-list > * {
+  flex: 0 0 auto;
+}
+
 /* Applying a strategy moves its row to the top: FLIP turns that jump into a
    slide so the change is visible instead of instantaneous. */
 .strategy-move {
@@ -724,8 +730,8 @@ input[type="range"] {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  min-height: 54px;
-  padding: 10px 12px 10px 16px;
+  min-height: 44px;
+  padding: 8px 12px 8px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-2);
@@ -927,6 +933,16 @@ input[type="range"] {
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
+}
+
+.row-cause {
+  padding: 1px 7px;
+  border: 1px solid color-mix(in oklab, var(--warn) 35%, transparent);
+  border-radius: 999px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .row-apply {
@@ -1730,8 +1746,8 @@ body {
   --accent-hover: #ff3d72;
   --accent-soft: rgba(232, 28, 90, 0.14);
   --accent-text: #ff5c8a;
-  --ok: #3a9e5e;
-  --ok-soft: rgba(58, 158, 94, 0.12);
+  --ok: #4ecb7a;
+  --ok-soft: rgba(78, 203, 122, 0.16);
   --danger: #d95c5f;
   --danger-soft: rgba(217, 92, 95, 0.12);
   --warn: #d9b24a;
@@ -1795,13 +1811,127 @@ body {
 
 .power-card,
 .home-hero,
-.home-row {
+.home-row,
+.traffic-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
   border-color: var(--glass-border);
   background: linear-gradient(160deg, var(--glass-bg), var(--glass-bg-2));
   box-shadow:
     0 18px 50px var(--glass-shadow),
     inset 0 1px 0 var(--glass-highlight);
   backdrop-filter: blur(18px) saturate(135%);
+}
+
+.traffic-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.traffic-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.traffic-title {
+  font-size: var(--fs-title);
+  font-weight: 600;
+}
+
+.traffic-body {
+  display: grid;
+  grid-template-columns: minmax(0, 240px) minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+}
+
+.traffic-numbers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.traffic-number {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.traffic-number strong {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.traffic-arrow {
+  font-size: 15px;
+}
+
+.traffic-arrow.down {
+  color: var(--accent);
+}
+
+.traffic-arrow.up {
+  color: var(--text-3);
+}
+
+.traffic-word {
+  color: var(--text-3);
+  font-size: var(--fs-caption);
+}
+
+.traffic-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.traffic-series {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  cursor: help;
+}
+
+.series-name {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.traffic-series.down .series-name {
+  color: var(--accent);
+}
+
+.traffic-down {
+  color: var(--accent);
+}
+
+.traffic-up {
+  color: var(--text-3);
+}
+
+.traffic-empty {
+  margin: 0;
+}
+
+@media (max-width: 860px) {
+  .traffic-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+.home-history {
+  width: 120px;
+  color: var(--text-3);
 }
 
 .home-hero-content {
@@ -1822,43 +1952,6 @@ body {
 .home-hero-text strong {
   font-size: var(--fs-title);
   font-weight: 600;
-}
-
-.home-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.home-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 12px 16px;
-}
-
-.home-row-main {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.home-row-main strong {
-  overflow: hidden;
-  color: var(--text);
-  font-size: var(--fs-body);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.home-row-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
 .power-head {

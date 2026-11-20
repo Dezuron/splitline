@@ -12,6 +12,7 @@ mod progress;
 mod registry;
 mod runtime;
 mod strategy;
+mod subscription;
 mod sys;
 mod tgws;
 mod updater;
@@ -559,6 +560,7 @@ pub fn run() {
             commands::delete_generated,
             commands::delete_all_generated,
             commands::get_last_bench,
+            commands::get_bench_history,
             commands::get_tgws_status,
             commands::start_tgws,
             commands::stop_tgws,
@@ -566,6 +568,7 @@ pub fn run() {
             commands::get_tgws_link,
             commands::regenerate_tgws_secret,
             commands::get_tgws_logs,
+            commands::diagnose_tgws,
             commands::check_tgws_update,
             commands::install_tgws_update,
             commands::dismiss_tgws_update,
@@ -574,6 +577,11 @@ pub fn run() {
             commands::set_tgws_port,
             commands::set_tgws_secret,
             commands::get_xray_status,
+            commands::get_xray_traffic,
+            commands::ping_xray_profile,
+            commands::get_xray_tunnel_probe,
+            commands::set_xray_auto_switch,
+            commands::restore_previous_subscription,
             commands::get_xray_profiles,
             commands::refresh_xray_subscription,
             commands::set_xray_subscription,
