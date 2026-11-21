@@ -16,6 +16,8 @@ import type {
   TgwsNotice,
   TgwsStatus,
   TgwsDiagnosis,
+  TgwsFlags,
+  TgwsLimits,
   TgwsUpdateInfo,
   TrayNotice,
   UpdateInfo,
@@ -1342,6 +1344,9 @@ export async function regenerateTgwsSecret() {
 }
 
 async function setTgwsSetting<T>(command: string, args: Record<string, unknown>): Promise<T> {
+  // Every setting save can restart the proxy on the backend side; the page
+  // disables its controls from this flag so a second click cannot race it.
+  tgwsBusy.value = true;
   try {
     const saved = await invoke<T>(command, args);
     await refreshInternal(true);
@@ -1350,6 +1355,8 @@ async function setTgwsSetting<T>(command: string, args: Record<string, unknown>)
   } catch (error) {
     toast("error", String(error));
     throw error;
+  } finally {
+    tgwsBusy.value = false;
   }
 }
 
@@ -1438,9 +1445,9 @@ export function setTgwsDomains(domains: string[]) {
   return setTgwsSetting<string[]>("set_tgws_domains", { domains });
 }
 
-/** Saves the Cloudflare Worker domain; an empty string turns it off. */
-export function setTgwsWorkerDomain(domain: string) {
-  return setTgwsSetting<string>("set_tgws_worker_domain", { domain });
+/** Saves the Cloudflare Worker domain list; an empty list turns the fallback off. */
+export function setTgwsWorkerDomains(domains: string[]) {
+  return setTgwsSetting<string[]>("set_tgws_worker_domains", { domains });
 }
 
 /** Rotates across the domain list instead of always using the first one. */
@@ -1451,6 +1458,21 @@ export function setTgwsBalance(enabled: boolean) {
 /** Turns inbound FakeTLS on (a domain) or off (an empty string). */
 export function setTgwsFakeTlsDomain(domain: string) {
   return setTgwsSetting<string>("set_tgws_fake_tls_domain", { domain });
+}
+
+/** Saves the DC → IP redirect list; an empty list returns the engine defaults. */
+export function setTgwsDcIps(ips: string[]) {
+  return setTgwsSetting<string[]>("set_tgws_dc_ips", { ips });
+}
+
+/** Saves buffer and pool size together; the backend restarts a running proxy. */
+export function setTgwsLimits(limits: TgwsLimits) {
+  return setTgwsSetting<void>("set_tgws_limits", { limits });
+}
+
+/** Saves the expert flags as a full set, because the backend replaces all of them. */
+export function setTgwsFlags(flags: TgwsFlags) {
+  return setTgwsSetting<void>("set_tgws_flags", { flags });
 }
 
 // ---------- VPN (Xray subscription) ----------

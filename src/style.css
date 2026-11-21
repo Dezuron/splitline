@@ -476,6 +476,17 @@ button {
   }
 }
 
+/* A refresh icon that is working; shared by the Telegram page and the hero. */
+.spinning {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .select {
   padding: 6px 10px;
   border: 1px solid var(--border-strong);
@@ -1819,7 +1830,8 @@ input[type="range"] {
 .power-card,
 .home-hero,
 .home-row,
-.traffic-card {
+.traffic-card,
+.versions-card {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -2017,8 +2029,9 @@ input[type="range"] {
 
 .home-hero-content {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 10px 12px;
   padding: 16px;
 }
 
@@ -2033,6 +2046,84 @@ input[type="range"] {
 .home-hero-text strong {
   font-size: var(--fs-title);
   font-weight: 600;
+}
+
+/* The versions strip sits at the very bottom of the page: what is installed,
+   where an update exists, and the manual check. */
+.versions-card {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+}
+
+.versions-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+}
+
+.versions-head strong {
+  font-size: var(--fs-title);
+  font-weight: 600;
+}
+
+.versions-list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.versions-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.home-version {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: var(--fs-caption);
+  white-space: nowrap;
+}
+
+.home-version-value {
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: var(--fs-caption);
+  font-weight: 500;
+}
+
+/* "An update exists for this component" — one dot, nothing louder. */
+.home-version-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 2px var(--warn-soft);
+}
+
+@media (max-width: 1000px) {
+  .versions-head,
+  .versions-list {
+    flex: 1 1 100%;
+  }
+
+  .versions-actions {
+    margin-left: 0;
+  }
 }
 
 .power-head {

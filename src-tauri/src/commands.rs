@@ -159,6 +159,19 @@ pub struct TgwsConfigView {
     pub cf_worker_domain: String,
     pub cf_balance: bool,
     pub fake_tls_domain: String,
+    /// `DC:IP` redirects, empty means the engine defaults.
+    pub dc_ip: Vec<String>,
+    pub buf_kb: u32,
+    pub pool_size: u32,
+    pub cfproxy: bool,
+    pub h2: bool,
+    pub verbose: bool,
+    pub no_secure: bool,
+    pub force_test_dc: bool,
+    pub proxy_protocol: bool,
+    /// Every Worker domain of the list; `cf_worker_domain` is its first entry
+    /// for older builds.
+    pub cf_worker_domains: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -321,6 +334,16 @@ pub fn get_config(state: State<'_, AppState>) -> AppResult<ConfigView> {
             cf_worker_domain: cfg.tgws.cf_worker_domain.clone(),
             cf_balance: cfg.tgws.cf_balance,
             fake_tls_domain: cfg.tgws.fake_tls_domain.clone(),
+            dc_ip: cfg.tgws.dc_ip.clone(),
+            buf_kb: cfg.tgws.buf_kb,
+            pool_size: cfg.tgws.pool_size,
+            cfproxy: cfg.tgws.cfproxy,
+            h2: cfg.tgws.h2,
+            verbose: cfg.tgws.verbose,
+            no_secure: cfg.tgws.no_secure,
+            force_test_dc: cfg.tgws.force_test_dc,
+            proxy_protocol: cfg.tgws.proxy_protocol,
+            cf_worker_domains: cfg.tgws.cf_worker_domains.clone(),
         },
         xray: XrayConfigView {
             subscription_url: cfg.xray.subscription_url.clone(),

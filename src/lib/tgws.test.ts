@@ -3,10 +3,18 @@ import {
   displayHost,
   isPublicBinding,
   MAX_CF_DOMAINS,
+  MAX_DC_IPS,
+  MAX_WORKER_DOMAINS,
   normalizeTgwsEngine,
+  TGWS_BUF_MAX_KB,
+  TGWS_BUF_MIN_KB,
+  telegramProxyPrompt,
   TGWS_ENGINES,
+  TGWS_POOL_MAX,
+  TGWS_POOL_MIN,
   tgwsEndpoint,
   tgwsEngineLabel,
+  tgwsLimitsError,
   tgwsLogTail,
   tgwsStateLabel,
   tgwsTone,
@@ -100,12 +108,75 @@ describe("tgwsEngineLabel", () => {
   });
 });
 
+describe("telegramProxyPrompt", () => {
+  const busyVpn = {
+    proxyRunning: true,
+    proxyActive: false,
+    proxyConnectionsTotal: 3,
+    vpnRunning: true,
+    vpnConnections: 2,
+  };
+
+  it("stays silent while the proxy is off", () => {
+    expect(telegramProxyPrompt({ ...busyVpn, proxyRunning: false })).toBeNull();
+  });
+
+  it("asks to connect when the proxy never saw a client", () => {
+    // The regression: unrelated VPN connections used to produce
+    // "Telegram sits on VPN" right after the proxy was switched on.
+    expect(telegramProxyPrompt({ ...busyVpn, proxyConnectionsTotal: 0 })).toBe("needs-proxy");
+  });
+
+  it("claims VPN only after a client left and the VPN carries traffic", () => {
+    expect(telegramProxyPrompt(busyVpn)).toBe("vpn");
+    expect(telegramProxyPrompt({ ...busyVpn, vpnConnections: 0 })).toBeNull();
+    expect(telegramProxyPrompt({ ...busyVpn, vpnRunning: false })).toBeNull();
+  });
+
+  it("stays silent while Telegram is connected to the proxy", () => {
+    expect(telegramProxyPrompt({ ...busyVpn, proxyActive: true })).toBeNull();
+  });
+});
+
 describe("TGWS_ENGINES", () => {
   it("offers both engines, old first, and marks the new one as beta", () => {
     expect(TGWS_ENGINES.map((option) => option.value)).toEqual(["python", "rs"]);
     expect(TGWS_ENGINES[0].label).toContain("проверенный");
     expect(TGWS_ENGINES[1].label).toContain("beta");
+    // The free proxy is the reason the new engine is offered at all.
+    expect(TGWS_ENGINES[1].note).toContain("бесплатный");
     // The page and the backend must cap the list the same way.
     expect(MAX_CF_DOMAINS).toBe(10);
+  });
+});
+
+describe("list caps", () => {
+  it("matches the backend limits for Worker domains and DC redirects", () => {
+    expect(MAX_WORKER_DOMAINS).toBe(10);
+    expect(MAX_DC_IPS).toBe(10);
+  });
+});
+
+describe("tgwsLimitsError", () => {
+  it("accepts the whole allowed range", () => {
+    expect(tgwsLimitsError(String(TGWS_BUF_MIN_KB), String(TGWS_POOL_MIN))).toBe("");
+    expect(tgwsLimitsError(String(TGWS_BUF_MAX_KB), String(TGWS_POOL_MAX))).toBe("");
+    expect(tgwsLimitsError("512", "4")).toBe("");
+    expect(tgwsLimitsError(" 512 ", " 4 ")).toBe("");
+  });
+
+  it("explains a bad buffer before touching the pool", () => {
+    expect(tgwsLimitsError("3", "4")).toContain("Буфер");
+    expect(tgwsLimitsError("4097", "4")).toContain("Буфер");
+    expect(tgwsLimitsError("", "4")).toContain("Буфер");
+    expect(tgwsLimitsError("4.5", "4")).toContain("Буфер");
+    expect(tgwsLimitsError("-1", "4")).toContain("Буфер");
+  });
+
+  it("explains a bad pool", () => {
+    expect(tgwsLimitsError("256", "33")).toContain("Пул");
+    expect(tgwsLimitsError("256", "-1")).toContain("Пул");
+    expect(tgwsLimitsError("256", "")).toContain("Пул");
+    expect(tgwsLimitsError("256", "много")).toContain("Пул");
   });
 });

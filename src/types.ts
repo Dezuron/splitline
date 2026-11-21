@@ -63,12 +63,49 @@ export interface TgwsConfigView {
    * backend does not report the list, and the page must not touch it.
    */
   cf_domains?: string[];
-  /** Cloudflare Worker domain for the TCP fallback; empty means not configured. */
-  cf_worker_domain?: string;
+  /**
+   * Cloudflare Worker domains for the TCP fallback, in priority order. Empty
+   * means the fallback is off.
+   */
+  cf_worker_domains?: string[];
   /** Rotate across the domain list instead of always starting from the first. */
   cf_balance?: boolean;
   /** Inbound FakeTLS domain; empty keeps the link in the plain `dd` form. */
   fake_tls_domain?: string;
+  /** Telegram datacenter redirects, e.g. `2:149.154.167.220`; empty keeps defaults. */
+  dc_ip?: string[];
+  /** Buffer per connection, KB; the backend accepts 4..4096. */
+  buf_kb?: number;
+  /** Ready WebSocket connections per DC; 0..32, `0` turns the direct route off. */
+  pool_size?: number;
+  /** Route through Cloudflare instead of connecting to Telegram directly. */
+  cfproxy?: boolean;
+  /** Multiplex media over one shared HTTP/2 connection. */
+  h2?: boolean;
+  /** Write a verbose proxy log. */
+  verbose?: boolean;
+  /** No TLS between the proxy and Cloudflare. */
+  no_secure?: boolean;
+  /** Send every client to Telegram's test datacenters. */
+  force_test_dc?: boolean;
+  /** Expect the PROXY protocol from an upstream proxy. */
+  proxy_protocol?: boolean;
+}
+
+/** Buffer and pool size saved together, because the backend replaces both. */
+export interface TgwsLimits {
+  buf_kb: number;
+  pool_size: number;
+}
+
+/** Expert flags saved as one set; the backend replaces all of them at once. */
+export interface TgwsFlags {
+  cfproxy: boolean;
+  h2: boolean;
+  verbose: boolean;
+  no_secure: boolean;
+  force_test_dc: boolean;
+  proxy_protocol: boolean;
 }
 
 export type TgwsState = "stopped" | "starting" | "running" | "stopping" | "error" | "not_installed";

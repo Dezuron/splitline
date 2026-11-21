@@ -90,9 +90,36 @@ export const TGWS_ENGINES: { value: TgwsEngine; label: string; note: string }[] 
   {
     value: "rs",
     label: "Новый (beta, меньше памяти)",
-    note: "Лёгкий, но молодой — при сбоях можно вернуться.",
+    note: "Лёгкий и бесплатный, без подписки. Молодой — при сбоях можно вернуться.",
   },
 ];
+
+/** Which Telegram hint the page should show, if any. */
+export type TelegramProxyPrompt = "vpn" | "needs-proxy" | null;
+
+export interface TelegramPromptInput {
+  proxyRunning: boolean;
+  /** `tgwsActivity === "active"`: a client is connected right now. */
+  proxyActive: boolean;
+  /** Connections accepted since the proxy started; 0 means "never". */
+  proxyConnectionsTotal: number;
+  vpnRunning: boolean;
+  vpnConnections: number;
+}
+
+/**
+ * What to ask the user about Telegram. "Telegram sits on VPN" needs evidence:
+ * the proxy saw a client before, that client is gone now, and the VPN is
+ * carrying traffic. A proxy that never saw a client gets the neutral
+ * "not using the proxy yet" hint instead — unrelated VPN connections must not
+ * turn into a claim about Telegram.
+ */
+export function telegramProxyPrompt(input: TelegramPromptInput): TelegramProxyPrompt {
+  if (!input.proxyRunning) return null;
+  if (input.proxyConnectionsTotal === 0) return "needs-proxy";
+  if (input.proxyActive) return null;
+  return input.vpnRunning && input.vpnConnections > 0 ? "vpn" : null;
+}
 
 /** Anything unrecognised is the engine the app would actually run. */
 export function normalizeTgwsEngine(value: string | undefined | null): TgwsEngine {
@@ -108,3 +135,40 @@ export function tgwsEngineLabel(value: string | undefined | null): string {
 
 /** Domains the engine tries in the given order; the backend caps the list. */
 export const MAX_CF_DOMAINS = 10;
+
+/** Worker domains for the TCP fallback; the backend caps the list too. */
+export const MAX_WORKER_DOMAINS = 10;
+
+/** DC redirects; matches the backend's cap on `--dc-ip` entries. */
+export const MAX_DC_IPS = 10;
+
+/** Upstream clamps the buffer to this range (kilobytes). */
+export const TGWS_BUF_MIN_KB = 4;
+export const TGWS_BUF_MAX_KB = 4096;
+
+/** Ready WebSocket connections per DC; `0` disables the direct DC route. */
+export const TGWS_POOL_MIN = 0;
+export const TGWS_POOL_MAX = 32;
+
+/** A whole number, or `null` for an empty or non-numeric field. */
+function parseWholeNumber(value: string): number | null {
+  const text = value.trim();
+  return /^\d+$/.test(text) ? Number(text) : null;
+}
+
+/**
+ * Why the buffer/pool pair cannot be saved, in one sentence; empty when both
+ * are valid. The rules mirror the backend, so the page can explain a typo
+ * before the proxy is restarted.
+ */
+export function tgwsLimitsError(bufKb: string, poolSize: string): string {
+  const buf = parseWholeNumber(bufKb);
+  if (buf === null || buf < TGWS_BUF_MIN_KB || buf > TGWS_BUF_MAX_KB) {
+    return `Буфер — целое число от ${TGWS_BUF_MIN_KB} до ${TGWS_BUF_MAX_KB} КБ.`;
+  }
+  const pool = parseWholeNumber(poolSize);
+  if (pool === null || pool < TGWS_POOL_MIN || pool > TGWS_POOL_MAX) {
+    return `Пул — целое число от ${TGWS_POOL_MIN} до ${TGWS_POOL_MAX}.`;
+  }
+  return "";
+}
