@@ -3,7 +3,18 @@ import { createApp, nextTick, type App } from "vue";
 import { createMemoryHistory, createRouter, type Router } from "vue-router";
 import type { AppStatus, TgwsStatus, TgwsUpdateInfo, UpdateInfo, XrayStatus } from "../types";
 import OverviewPage from "./OverviewPage.vue";
-import { appUpdate, status, tgwsStatus, tgwsUpdate, updateInfo, xrayStatus } from "../store";
+import {
+  appUpdate,
+  checkingAppUpdate,
+  checkingUpdate,
+  status,
+  tgwsChecking,
+  tgwsStatus,
+  tgwsUpdate,
+  updateInfo,
+  xrayStatus,
+} from "../store";
+import { toasts } from "../lib/toast";
 
 let app: App | null = null;
 let host: HTMLElement | null = null;
@@ -140,6 +151,11 @@ describe("OverviewPage hero versions", () => {
     appUpdate.value = null;
     updateInfo.value = null;
     tgwsUpdate.value = null;
+    checkingAppUpdate.value = false;
+    checkingUpdate.value = false;
+    tgwsChecking.value = false;
+    toasts.value = [];
+    delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
   });
 
   afterEach(() => {
@@ -199,5 +215,74 @@ describe("OverviewPage hero versions", () => {
     await nextTick();
 
     await vi.waitFor(() => expect(router?.currentRoute.value.path).toBe("/settings"));
+  });
+
+  it("has a quiet refresh button with an accessible name", async () => {
+    const page = await mountPage();
+    const button = page.querySelector<HTMLButtonElement>(
+      '.home-hero button[aria-label="Проверить обновления"]',
+    );
+
+    expect(button?.title).toBe("Проверить обновления");
+    expect(button?.querySelector("svg")).not.toBeNull();
+    expect(button?.disabled).toBe(false);
+  });
+
+  it("spins and disables the refresh button while a check is running", async () => {
+    checkingAppUpdate.value = true;
+    const page = await mountPage();
+    const button = page.querySelector<HTMLButtonElement>(
+      '.home-hero button[aria-label="Проверить обновления"]',
+    );
+
+    expect(button?.disabled).toBe(true);
+    expect(button?.querySelector("svg")?.classList.contains("spinning")).toBe(true);
+  });
+
+  it("checks all three components from the hero button", async () => {
+    const invoke = vi.fn((cmd: string) => {
+      if (cmd === "check_app_update") return Promise.resolve(null);
+      if (cmd === "check_update") {
+        return Promise.resolve({
+          installed: "1.10.4",
+          latest: "1.10.4",
+          update_available: false,
+          changelog: "",
+          download_size: 0,
+        });
+      }
+      if (cmd === "check_tgws_update") {
+        return Promise.resolve({
+          installed: "1.11.4",
+          latest: "1.11.4",
+          latest_tag: "v1.11.4",
+          has_update: false,
+          asset_name: null,
+          asset_url: null,
+          asset_size: 0,
+          digest: null,
+          release_url: null,
+          published_at: null,
+          dismissed: false,
+        });
+      }
+      return Promise.resolve(null);
+    });
+    (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = { invoke };
+
+    const page = await mountPage();
+    page
+      .querySelector<HTMLButtonElement>('.home-hero button[aria-label="Проверить обновления"]')
+      ?.click();
+
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(3));
+    expect(invoke.mock.calls.map(([cmd]) => cmd).sort()).toEqual([
+      "check_app_update",
+      "check_tgws_update",
+      "check_update",
+    ]);
+    await vi.waitFor(() =>
+      expect(toasts.value[toasts.value.length - 1]?.text).toBe("Обновлений нет."),
+    );
   });
 });

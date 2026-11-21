@@ -476,6 +476,17 @@ button {
   }
 }
 
+/* A refresh icon that is working; shared by the Telegram page and the hero. */
+.spinning {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .select {
   padding: 6px 10px;
   border: 1px solid var(--border-strong);

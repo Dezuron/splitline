@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
-import { ArrowUpRight, Send, ShieldCheck, Zap } from "lucide-vue-next";
+import { ArrowUpRight, RefreshCw, Send, ShieldCheck, Zap } from "lucide-vue-next";
 import Button from "../components/ui/button/Button.vue";
 import Card from "../components/ui/card/Card.vue";
 import CardContent from "../components/ui/card/CardContent.vue";
@@ -17,6 +17,9 @@ import {
   appVersion,
   benchRunning,
   busy,
+  checkAllUpdates,
+  checkingAppUpdate,
+  checkingUpdate,
   config,
   running,
   runtimeReady,
@@ -25,6 +28,7 @@ import {
   statusTone,
   tgwsActiveConnections,
   tgwsBusy,
+  tgwsChecking,
   tgwsLastActivityLabel,
   tgwsRunning,
   tgwsStatus,
@@ -68,6 +72,20 @@ const updatesLabel = computed(() => {
   if (!count) return "Обновлений нет";
   return count === 1 ? "Доступно 1 обновление" : `Доступно обновлений: ${count}`;
 });
+
+/** Any of the three checks running: the hero button spins and ignores clicks. */
+const checkingAllUpdates = computed(
+  () => checkingAppUpdate.value || checkingUpdate.value || tgwsChecking.value,
+);
+
+/**
+ * One click checks the app, flowseal-zapret and the Telegram proxy; the store
+ * already reports the result as a toast, including "Обновлений нет."
+ */
+async function refreshUpdates() {
+  if (checkingAllUpdates.value) return;
+  await checkAllUpdates();
+}
 
 /** The Telegram dot respects a dismissed release; the button keeps its own count. */
 const telegramUpdatePending = computed(
@@ -198,6 +216,16 @@ function speedLabel(bytes: number): string {
           @click="router.push('/settings')"
         >
           {{ updatesLabel }}
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          title="Проверить обновления"
+          aria-label="Проверить обновления"
+          :disabled="checkingAllUpdates"
+          @click="refreshUpdates"
+        >
+          <RefreshCw :size="15" :class="{ spinning: checkingAllUpdates }" />
         </Button>
       </div>
     </Card>
