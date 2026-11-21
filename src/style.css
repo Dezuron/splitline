@@ -2047,24 +2047,40 @@ input[type="range"] {
   font-weight: 600;
 }
 
-/* The refresh action lives in the card's bottom-right corner, below the
-   versions, so it never competes with the status line. */
-.home-hero-footer {
+/* The last row of the hero: versions on the left, the refresh action in the
+   bottom-right corner. The button is absolute, so it never makes the row
+   taller and the card keeps its two-line height. */
+.home-hero-bottom {
+  position: relative;
   display: flex;
   flex: 1 1 100%;
-  justify-content: flex-end;
-  order: 2;
+  align-items: center;
+  gap: 8px 12px;
+  order: 1;
+  padding-top: 10px;
+  border-top: 1px solid var(--glass-border);
 }
 
 /* Installed versions: a quiet row that never competes with the status line. */
 .home-hero-versions {
   display: flex;
+  flex: 1 1 auto;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 14px;
+  min-width: 0;
   margin: 0;
-  padding: 0;
+  /* Keep the text clear of the absolutely positioned refresh button. */
+  padding: 0 48px 0 0;
   list-style: none;
+}
+
+/* More specific than the shared `.ui-button` rule that sets `position: relative`
+   for the button's own focus ring. */
+.home-hero-bottom .home-hero-refresh {
+  position: absolute;
+  right: 0;
+  bottom: -8px;
 }
 
 .home-version {
@@ -2091,17 +2107,6 @@ input[type="range"] {
   border-radius: 50%;
   background: var(--warn);
   box-shadow: 0 0 0 2px var(--warn-soft);
-}
-
-/* The window's own minimum is 820 px; the row needs about 1200 px to keep the
-   status line readable, so below that the versions take their own line. */
-@media (max-width: 1200px) {
-  .home-hero-versions {
-    order: 1;
-    flex: 1 1 100%;
-    padding-top: 10px;
-    border-top: 1px solid var(--glass-border);
-  }
 }
 
 .power-head {

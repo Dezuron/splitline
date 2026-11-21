@@ -201,14 +201,6 @@ function speedLabel(bytes: number): string {
           <strong>{{ statusText }}</strong>
           <span class="muted">{{ heroHint }}</span>
         </div>
-        <ul class="home-hero-versions">
-          <li v-for="item in versions" :key="item.key" class="home-version">
-            <span v-if="item.update" class="home-version-dot" aria-hidden="true"></span>
-            <span class="home-version-label">{{ item.label }}</span>
-            <strong class="home-version-value">{{ item.version }}</strong>
-            <span v-if="item.update" class="sr-only">— доступно обновление</span>
-          </li>
-        </ul>
         <Button
           v-if="updatesAvailable"
           variant="secondary"
@@ -217,8 +209,17 @@ function speedLabel(bytes: number): string {
         >
           {{ updatesLabel }}
         </Button>
-        <div class="home-hero-footer">
+        <div class="home-hero-bottom">
+          <ul class="home-hero-versions">
+            <li v-for="item in versions" :key="item.key" class="home-version">
+              <span v-if="item.update" class="home-version-dot" aria-hidden="true"></span>
+              <span class="home-version-label">{{ item.label }}</span>
+              <strong class="home-version-value">{{ item.version }}</strong>
+              <span v-if="item.update" class="sr-only">— доступно обновление</span>
+            </li>
+          </ul>
           <Button
+            class="home-hero-refresh"
             variant="outline"
             size="icon"
             title="Проверить обновления"

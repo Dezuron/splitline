@@ -228,13 +228,14 @@ describe("OverviewPage hero versions", () => {
     expect(button?.disabled).toBe(false);
   });
 
-  it("puts the refresh button in the hero footer, below the versions", async () => {
+  it("puts the refresh button at the end of the versions row", async () => {
     const page = await mountPage();
-    const content = page.querySelector(".home-hero-content");
-    const footer = content?.lastElementChild;
+    const row = page.querySelector(".home-hero-bottom");
+    const button = row?.querySelector('button[aria-label="Проверить обновления"]');
 
-    expect(footer?.classList.contains("home-hero-footer")).toBe(true);
-    expect(footer?.querySelector('button[aria-label="Проверить обновления"]')).not.toBeNull();
+    expect(row?.firstElementChild?.classList.contains("home-hero-versions")).toBe(true);
+    expect(row?.lastElementChild).toBe(button);
+    expect(button).not.toBeNull();
   });
 
   it("spins and disables the refresh button while a check is running", async () => {
