@@ -112,6 +112,8 @@ describe("TGWS_ENGINES", () => {
     expect(TGWS_ENGINES.map((option) => option.value)).toEqual(["python", "rs"]);
     expect(TGWS_ENGINES[0].label).toContain("проверенный");
     expect(TGWS_ENGINES[1].label).toContain("beta");
+    // The free proxy is the reason the new engine is offered at all.
+    expect(TGWS_ENGINES[1].note).toContain("бесплатный");
     // The page and the backend must cap the list the same way.
     expect(MAX_CF_DOMAINS).toBe(10);
   });

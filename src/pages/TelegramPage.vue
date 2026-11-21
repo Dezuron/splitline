@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import {
   AlertTriangle,
+  BadgeCheck,
   Copy,
   Download,
   ExternalLink,
@@ -487,7 +488,18 @@ async function commitSecret() {
         <div class="tgws-hero-icon"><Send :size="21" /></div>
         <div class="tgws-hero-text">
           <span class="eyebrow">Telegram</span>
-          <CardTitle>WS-прокси</CardTitle>
+          <div class="tgws-hero-title">
+            <CardTitle>WS-прокси</CardTitle>
+            <span
+              class="tgws-free-badge"
+              role="note"
+              title="Бесплатный прокси: движок rs и встроенный список Cloudflare-доменов Flowseal"
+              aria-label="Бесплатный прокси: движок rs и встроенный список Cloudflare-доменов Flowseal"
+            >
+              <BadgeCheck :size="13" aria-hidden="true" />
+              Бесплатно
+            </span>
+          </div>
           <CardDescription>{{ tgwsStatusText }}</CardDescription>
         </div>
         <div class="tgws-hero-controls">
@@ -1453,6 +1465,28 @@ async function commitSecret() {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+
+.tgws-hero-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Free is the point of this proxy: a quiet green mark, not a call to action. */
+.tgws-free-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in oklab, var(--ok) 35%, transparent);
+  border-radius: 999px;
+  background: var(--ok-soft);
+  color: var(--ok);
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .tgws-hero-controls {
