@@ -10,10 +10,11 @@ import CardHeader from "../components/ui/card/CardHeader.vue";
 import CardTitle from "../components/ui/card/CardTitle.vue";
 import Switch from "../components/ui/switch/Switch.vue";
 import Sparkline from "../components/Sparkline.vue";
-import { formatBytes } from "../lib/labels";
+import { formatBytes, versionLabel } from "../lib/labels";
 import {
   activeServiceCount,
   appUpdate,
+  appVersion,
   benchRunning,
   busy,
   config,
@@ -26,6 +27,7 @@ import {
   tgwsBusy,
   tgwsLastActivityLabel,
   tgwsRunning,
+  tgwsStatus,
   tgwsStatusText,
   tgwsUpdate,
   toggleStart,
@@ -66,6 +68,46 @@ const updatesLabel = computed(() => {
   if (!count) return "Обновлений нет";
   return count === 1 ? "Доступно 1 обновление" : `Доступно обновлений: ${count}`;
 });
+
+/** The Telegram dot respects a dismissed release; the button keeps its own count. */
+const telegramUpdatePending = computed(
+  () => !!tgwsUpdate.value?.has_update && !tgwsUpdate.value.dismissed,
+);
+
+interface HeroVersion {
+  key: string;
+  label: string;
+  version: string;
+  update: boolean;
+}
+
+/** What is installed where: one row of versions for the hero. */
+const versions = computed<HeroVersion[]>(() => [
+  {
+    key: "splitline",
+    label: "Splitline",
+    version: versionLabel(appVersion.value),
+    update: appHasUpdate.value,
+  },
+  {
+    key: "zapret",
+    label: "zapret",
+    version: versionLabel(status.value?.installed_version),
+    update: zapretHasUpdate.value,
+  },
+  {
+    key: "xray",
+    label: "Xray",
+    version: versionLabel(xrayStatus.value?.installed_version),
+    update: false,
+  },
+  {
+    key: "telegram",
+    label: "Telegram",
+    version: versionLabel(tgwsStatus.value?.installed_version),
+    update: telegramUpdatePending.value,
+  },
+]);
 
 const vpnRunning = computed(() => xrayStatus.value?.state === "running");
 const heroHint = computed(() =>
@@ -141,6 +183,14 @@ function speedLabel(bytes: number): string {
           <strong>{{ statusText }}</strong>
           <span class="muted">{{ heroHint }}</span>
         </div>
+        <ul class="home-hero-versions">
+          <li v-for="item in versions" :key="item.key" class="home-version">
+            <span v-if="item.update" class="home-version-dot" aria-hidden="true"></span>
+            <span class="home-version-label">{{ item.label }}</span>
+            <strong class="home-version-value">{{ item.version }}</strong>
+            <span v-if="item.update" class="sr-only">— доступно обновление</span>
+          </li>
+        </ul>
         <Button
           v-if="updatesAvailable"
           variant="secondary"

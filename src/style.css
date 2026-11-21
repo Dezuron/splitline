@@ -2017,8 +2017,9 @@ input[type="range"] {
 
 .home-hero-content {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 10px 12px;
   padding: 16px;
 }
 
@@ -2033,6 +2034,54 @@ input[type="range"] {
 .home-hero-text strong {
   font-size: var(--fs-title);
   font-weight: 600;
+}
+
+/* Installed versions: a quiet row that never competes with the status line. */
+.home-hero-versions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-version {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: var(--fs-caption);
+  white-space: nowrap;
+}
+
+.home-version-value {
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: var(--fs-caption);
+  font-weight: 500;
+}
+
+/* "An update exists for this component" — one dot, nothing louder. */
+.home-version-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 2px var(--warn-soft);
+}
+
+/* The window's own minimum is 820 px; the row needs about 1200 px to keep the
+   status line readable, so below that the versions take their own line. */
+@media (max-width: 1200px) {
+  .home-hero-versions {
+    order: 1;
+    flex: 1 1 100%;
+    padding-top: 10px;
+    border-top: 1px solid var(--glass-border);
+  }
 }
 
 .power-head {
