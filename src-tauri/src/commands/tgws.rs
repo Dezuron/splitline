@@ -183,6 +183,57 @@ pub async fn set_tgws_balance(app: tauri::AppHandle, enabled: bool) -> AppResult
     )
 }
 
+/// Saves the Cloudflare Worker domain list. Order is priority order; ten at
+/// most. A running proxy is restarted, so the change takes effect at once.
+#[tauri::command]
+pub async fn set_tgws_worker_domains(
+    app: tauri::AppHandle,
+    domains: Vec<String>,
+) -> AppResult<Vec<String>> {
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || tgws::set_worker_domains(&app, &domains))
+            .await
+            .map_err(|e| e.to_string())??,
+    )
+}
+
+/// Saves the `DC:IP` redirects; an empty list returns to the engine defaults.
+#[tauri::command]
+pub async fn set_tgws_dc_ips(app: tauri::AppHandle, ips: Vec<String>) -> AppResult<Vec<String>> {
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || tgws::set_dc_ips(&app, &ips))
+            .await
+            .map_err(|e| e.to_string())??,
+    )
+}
+
+/// Saves the socket buffer and the per-DC connection pool size.
+#[tauri::command]
+pub async fn set_tgws_limits(
+    app: tauri::AppHandle,
+    limits: tgws::TgwsLimits,
+) -> AppResult<tgws::TgwsLimits> {
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || tgws::set_limits(&app, limits))
+            .await
+            .map_err(|e| e.to_string())??,
+    )
+}
+
+/// Saves the on/off switches of the proxy (Cloudflare routing, HTTP/2, verbose
+/// log, plaintext Cloudflare hops, test datacenters, PROXY protocol).
+#[tauri::command]
+pub async fn set_tgws_flags(
+    app: tauri::AppHandle,
+    flags: tgws::TgwsFlags,
+) -> AppResult<tgws::TgwsFlags> {
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || tgws::set_flags(&app, flags))
+            .await
+            .map_err(|e| e.to_string())??,
+    )
+}
+
 /// Inbound FakeTLS domain; an empty string turns the camouflage off and
 /// returns the link to the plain `dd` form.
 #[tauri::command]
@@ -247,6 +298,10 @@ pub fn tgws_commands() -> CommandSet {
         set_tgws_engine,
         set_tgws_domains,
         set_tgws_worker_domain,
+        set_tgws_worker_domains,
+        set_tgws_dc_ips,
+        set_tgws_limits,
+        set_tgws_flags,
         set_tgws_balance,
         set_tgws_fake_tls_domain,
         open_tgws_log,

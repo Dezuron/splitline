@@ -77,6 +77,18 @@ const LISTENER_CHECK_TIMEOUT: Duration = Duration::from_secs(45);
 /// Largest Cloudflare domain list the UI may save. Ten is far beyond what the
 /// proxy needs and keeps the argv bounded.
 pub const MAX_CF_DOMAINS: usize = 10;
+/// Largest `DC:IP` redirect list, for the same reason.
+pub const MAX_DC_REDIRECTS: usize = 10;
+/// Highest Telegram DC id, including the test datacenters.
+pub const MAX_DC_ID: u16 = 203;
+/// Socket buffer range accepted by both engines (`--buf-kb`). Four is the
+/// upstream minimum the argv builder has always clamped to; the upper bound
+/// keeps a typo from reserving a gigabyte per socket.
+pub const MIN_BUF_KB: u32 = 4;
+pub const MAX_BUF_KB: u32 = 4096;
+/// Pre-warmed WebSocket connections per DC (`--pool-size`). Zero is a valid
+/// "no pool" setting; 32 is far beyond any useful value.
+pub const MAX_POOL_SIZE: u32 = 32;
 /// Standalone Flowseal tray app that occupies the same default port.
 const STANDALONE_IMAGE: &str = "TgWsProxy_windows.exe";
 
@@ -1136,11 +1148,15 @@ pub fn update_settings(
 
 // ---------- engine ----------
 
-/// Applies a setting only the Rust engine understands.
+/// Applies a proxy setting that is not part of the endpoint (host, port,
+/// secret) and restarts the proxy when it is running, so the live process never
+/// disagrees with the config.
 ///
-/// The old engine has no counterpart for these flags, so a running Python
-/// proxy is deliberately not restarted: its process, port and link are
-/// untouched until the user actually switches engines.
+/// These used to be Rust-engine-only switches. Since 2.3.0 both engines
+/// understand them — the old one takes domains, Worker domains, `--no-secure`,
+/// `--force-test-dc` and `--proxy-protocol` too — so the restart is no longer
+/// conditional on the engine. A change made while the proxy is stopped is just
+/// saved and reaches the argv on the next start.
 fn update_engine_settings(
     app: &AppHandle,
     patch: impl FnOnce(&mut config::TgwsConfig),
@@ -1148,7 +1164,7 @@ fn update_engine_settings(
     let state = app.state::<AppState>();
     let _guard = lock(&state.tgws.op);
     save_cfg(app, patch)?;
-    if active_engine(app) == ProxyEngine::Rs && status(app).state == TgwsState::Running {
+    if status(app).state == TgwsState::Running {
         stop_locked(app)?;
         std::thread::sleep(Duration::from_millis(300));
         start_locked(app)?;
@@ -1211,20 +1227,103 @@ pub fn set_engine(app: &AppHandle, requested: &str) -> Result<String, String> {
     Ok(engine.as_str().to_string())
 }
 
+/// Buffers and pool size edited from the Telegram page.
+///
+/// Validated once on save instead of in every argv builder, so a hand-edited
+/// config cannot smuggle a value the engines would reject.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TgwsLimits {
+    pub buf_kb: u32,
+    pub pool_size: u32,
+}
+
+/// On/off switches of the Telegram page. Every field maps to a CLI flag of at
+/// least one engine; `build_rs_args` says which ones the Rust engine drops.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TgwsFlags {
+    pub cfproxy: bool,
+    pub h2: bool,
+    pub verbose: bool,
+    pub no_secure: bool,
+    pub force_test_dc: bool,
+    pub proxy_protocol: bool,
+}
+
 /// Saves the Cloudflare domain list and returns it as stored (R5).
 pub fn set_domains(app: &AppHandle, domains: &[String]) -> Result<Vec<String>, String> {
     let domains = validate_domains(domains)?;
     let saved = domains.clone();
-    update_engine_settings(app, move |cfg| cfg.cf_domains = domains)?;
+    // The 2.2.0 field is kept equal to the first entry: an older build reads
+    // only it, and it must not resurrect a domain the user removed here.
+    let legacy = domains.first().cloned().unwrap_or_default();
+    update_engine_settings(app, move |cfg| {
+        cfg.cf_domains = domains;
+        cfg.cfproxy_user_domain = legacy;
+    })?;
     Ok(saved)
 }
 
-/// Saves the Worker domain; an empty string means "not configured".
+/// Saves the Cloudflare Worker domain; an empty string means "not configured".
 pub fn set_worker_domain(app: &AppHandle, domain: &str) -> Result<String, String> {
     let domain = validate_worker_domain(domain)?;
     let saved = domain.clone();
-    update_engine_settings(app, move |cfg| cfg.cf_worker_domain = domain)?;
+    let list = if domain.is_empty() {
+        Vec::new()
+    } else {
+        vec![domain.clone()]
+    };
+    update_engine_settings(app, move |cfg| {
+        cfg.cf_worker_domain = domain;
+        cfg.cf_worker_domains = list;
+    })?;
     Ok(saved)
+}
+
+/// Saves the Worker domain list (R5). The legacy single field follows the
+/// first entry for the same reason as in [`set_domains`].
+pub fn set_worker_domains(app: &AppHandle, domains: &[String]) -> Result<Vec<String>, String> {
+    let domains = validate_domains(domains)?;
+    let saved = domains.clone();
+    let legacy = domains.first().cloned().unwrap_or_default();
+    update_engine_settings(app, move |cfg| {
+        cfg.cf_worker_domains = domains;
+        cfg.cf_worker_domain = legacy;
+    })?;
+    Ok(saved)
+}
+
+/// Saves the `DC:IP` redirects (R5). An empty list means the engine defaults.
+pub fn set_dc_ips(app: &AppHandle, ips: &[String]) -> Result<Vec<String>, String> {
+    let ips = validate_dc_ips(ips)?;
+    let saved = ips.clone();
+    update_engine_settings(app, move |cfg| cfg.dc_ip = ips)?;
+    Ok(saved)
+}
+
+/// Saves the buffer and pool size (R5).
+pub fn set_limits(app: &AppHandle, limits: TgwsLimits) -> Result<TgwsLimits, String> {
+    let limits = TgwsLimits {
+        buf_kb: validate_buf_kb(limits.buf_kb)?,
+        pool_size: validate_pool_size(limits.pool_size)?,
+    };
+    update_engine_settings(app, move |cfg| {
+        cfg.buf_kb = limits.buf_kb;
+        cfg.pool_size = limits.pool_size;
+    })?;
+    Ok(limits)
+}
+
+/// Saves the on/off switches (R5).
+pub fn set_flags(app: &AppHandle, flags: TgwsFlags) -> Result<TgwsFlags, String> {
+    update_engine_settings(app, move |cfg| {
+        cfg.cfproxy = flags.cfproxy;
+        cfg.h2 = flags.h2;
+        cfg.verbose = flags.verbose;
+        cfg.no_secure = flags.no_secure;
+        cfg.force_test_dc = flags.force_test_dc;
+        cfg.proxy_protocol = flags.proxy_protocol;
+    })?;
+    Ok(flags)
 }
 
 /// Turns round-robin over the domain list on or off.
@@ -1356,6 +1455,77 @@ pub fn validate_worker_domain(value: &str) -> Result<String, String> {
     validate_domain(value)
 }
 
+/// One `DC:IP` redirect, e.g. `2:149.154.167.220` (R6).
+///
+/// The split is at the first colon only: an IPv6 literal brings its own colons
+/// (`2:2001:db8::1`), and splitting from the right would eat the DC number.
+pub fn validate_dc_redirect(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    let (dc, ip) = value
+        .split_once(':')
+        .ok_or("Перенаправление задаётся как 2:149.154.167.220.")?;
+
+    let dc: u16 = dc
+        .trim()
+        .parse()
+        .map_err(|_| format!("Номер дата-центра должен быть числом от 1 до {MAX_DC_ID}."))?;
+    if !(1..=MAX_DC_ID).contains(&dc) {
+        return Err(format!(
+            "Номер дата-центра должен быть от 1 до {MAX_DC_ID}."
+        ));
+    }
+
+    let ip_text = ip.trim();
+    if ip_text.is_empty() {
+        return Err("После двоеточия нужен IP-адрес дата-центра.".into());
+    }
+    let ip: IpAddr = ip_text
+        .parse()
+        .map_err(|_| format!("Не удалось разобрать IP-адрес: {ip_text}."))?;
+    Ok(format!("{dc}:{ip}"))
+}
+
+/// Validates and normalises the redirect list: order is kept, blanks dropped,
+/// duplicates collapsed (R6).
+pub fn validate_dc_ips(values: &[String]) -> Result<Vec<String>, String> {
+    let mut ips: Vec<String> = Vec::new();
+    for value in values {
+        if value.trim().is_empty() {
+            continue;
+        }
+        let ip = validate_dc_redirect(value)?;
+        if !ips.contains(&ip) {
+            ips.push(ip);
+        }
+    }
+    if ips.len() > MAX_DC_REDIRECTS {
+        return Err(format!(
+            "Не больше {MAX_DC_REDIRECTS} перенаправлений дата-центров."
+        ));
+    }
+    Ok(ips)
+}
+
+pub fn validate_buf_kb(value: u32) -> Result<u32, String> {
+    if (MIN_BUF_KB..=MAX_BUF_KB).contains(&value) {
+        Ok(value)
+    } else {
+        Err(format!(
+            "Буфер должен быть от {MIN_BUF_KB} до {MAX_BUF_KB} КБ."
+        ))
+    }
+}
+
+pub fn validate_pool_size(value: u32) -> Result<u32, String> {
+    if value <= MAX_POOL_SIZE {
+        Ok(value)
+    } else {
+        Err(format!(
+            "Пул соединений должен быть от 0 до {MAX_POOL_SIZE}."
+        ))
+    }
+}
+
 pub fn validate_host(host: &str) -> Result<String, String> {
     let host = host.trim();
     if host.is_empty() {
@@ -1409,7 +1579,7 @@ pub fn build_args(cfg: &config::TgwsConfig, secret: &str) -> Vec<String> {
     }
 
     args.push("--buf-kb".into());
-    args.push(cfg.buf_kb.max(4).to_string());
+    args.push(cfg.buf_kb.clamp(MIN_BUF_KB, MAX_BUF_KB).to_string());
     args.push("--pool-size".into());
     args.push(cfg.pool_size.to_string());
 
@@ -1423,21 +1593,26 @@ pub fn build_args(cfg: &config::TgwsConfig, secret: &str) -> Vec<String> {
         args.push("--no-h2".into());
     }
 
-    let domain = cfg.cfproxy_user_domain.trim();
-    if !domain.is_empty() {
+    // Every domain of the list reaches the old engine too (R3): the repeatable
+    // flag is what makes a migrated 2.2.0 config behave the same on both
+    // engines instead of silently using the first entry.
+    for domain in engine_domains(cfg) {
         args.push("--cfproxy-domain".into());
-        args.push(domain.to_string());
-    } else if let Some(domain) = cfg
-        .cf_domains
-        .iter()
-        .map(|domain| domain.trim())
-        .find(|domain| !domain.is_empty())
-    {
-        // This engine knows one Cloudflare domain, not a list: the first entry
-        // wins, so the "Домены Cloudflare" field means something on both
-        // engines instead of being silently ignored on the old one.
-        args.push("--cfproxy-domain".into());
-        args.push(domain.to_ascii_lowercase());
+        args.push(domain);
+    }
+    for worker in engine_worker_domains(cfg) {
+        args.push("--cfproxy-worker-domain".into());
+        args.push(worker);
+    }
+
+    if cfg.no_secure {
+        args.push("--no-secure".into());
+    }
+    if cfg.force_test_dc {
+        args.push("--force-test-dc".into());
+    }
+    if cfg.proxy_protocol {
+        args.push("--proxy-protocol".into());
     }
 
     let fake_tls = cfg.fake_tls_domain.trim();
@@ -1449,9 +1624,9 @@ pub fn build_args(cfg: &config::TgwsConfig, secret: &str) -> Vec<String> {
     args
 }
 
-/// Cloudflare domains for the Rust engine: the edited list, or the single
-/// legacy field so a config written for the old engine keeps its domain after
-/// the switch. Order is the user's: it is the priority order of the engine.
+/// Cloudflare domains for either engine: the edited list, or the single legacy
+/// field so a config written for the old engine keeps its domain after the
+/// switch. Order is the user's: it is the priority order of the engine.
 fn engine_domains(cfg: &config::TgwsConfig) -> Vec<String> {
     let mut domains: Vec<String> = cfg
         .cf_domains
@@ -1468,12 +1643,33 @@ fn engine_domains(cfg: &config::TgwsConfig) -> Vec<String> {
     domains
 }
 
-/// Builds the CLI arguments of `tg-ws-proxy-rs` (R3).
+/// Worker domains for either engine, with the same legacy fallback and the
+/// same "user order is priority order" contract as [`engine_domains`].
+fn engine_worker_domains(cfg: &config::TgwsConfig) -> Vec<String> {
+    let mut workers: Vec<String> = Vec::new();
+    for worker in &cfg.cf_worker_domains {
+        let worker = worker.trim().to_ascii_lowercase();
+        if !worker.is_empty() && !workers.contains(&worker) {
+            workers.push(worker);
+        }
+    }
+    if workers.is_empty() {
+        let legacy = cfg.cf_worker_domain.trim().to_ascii_lowercase();
+        if !legacy.is_empty() {
+            workers.push(legacy);
+        }
+    }
+    workers
+}
+
+/// Builds the CLI arguments of `tg-ws-proxy-rs` (R3, R4).
 ///
-/// Only flags both engines share are mapped from the shared settings; the old
-/// engine's `--buf-kb`, `--h2` and `--no-cfproxy` have no counterpart (the
-/// Rust port ignores `--buf-kb` and always speaks WebSocket), so they are
-/// dropped instead of being passed as unknown arguments.
+/// Only flags that engine knows are mapped from the shared settings: `--h2`,
+/// `--no-cfproxy`, `--force-test-dc` and `--proxy-protocol` have no
+/// counterpart (the Rust port always speaks WebSocket and has no test-DC or
+/// PROXY-protocol switch), so they are dropped instead of being passed as
+/// unknown arguments that would fail the start. `--no-secure` maps to
+/// `--cf-disable-tls` with the caveat documented at its push site.
 pub fn build_rs_args(cfg: &config::TgwsConfig, secret: &str) -> Vec<String> {
     let mut args = vec![
         "--host".to_string(),
@@ -1509,10 +1705,18 @@ pub fn build_rs_args(cfg: &config::TgwsConfig, secret: &str) -> Vec<String> {
             args.push("--cf-domain".into());
             args.push(domains.join(","));
         }
-        let worker = cfg.cf_worker_domain.trim().to_ascii_lowercase();
-        if !worker.is_empty() {
+        // Repeatable in the Rust engine as well, so the list needs no
+        // separator and the user's order is preserved (R4).
+        for worker in engine_worker_domains(cfg) {
             args.push("--cf-worker-domain".into());
             args.push(worker);
+        }
+        // `--no-secure` has no exact counterpart: `--cf-disable-tls` switches
+        // the Cloudflare proxy and Worker hops to plaintext `ws://:80`, while
+        // direct Telegram WebSocket stays on TLS. It only makes sense with
+        // Cloudflare routing on, which is why it lives inside this branch.
+        if cfg.no_secure {
+            args.push("--cf-disable-tls".into());
         }
         // Only when the user has no domains of their own: this is the Rust
         // engine's counterpart of the old engine's built-in Cloudflare list.
@@ -1529,6 +1733,9 @@ pub fn build_rs_args(cfg: &config::TgwsConfig, secret: &str) -> Vec<String> {
     if cfg.verbose {
         args.push("-v".into());
     }
+    // `force_test_dc` and `proxy_protocol` have no Rust-engine flag: dropping
+    // them keeps the argv valid instead of failing the start on an unknown
+    // argument. The settings are shared, so the old engine still gets them.
 
     args
 }
@@ -3732,7 +3939,7 @@ mod tests {
     }
 
     #[test]
-    fn the_first_domain_reaches_the_old_engine_too() {
+    fn the_old_engine_takes_the_whole_domain_list() {
         let mut base = cfg();
         assert!(!build_args(&base, "aa")
             .iter()
@@ -3740,18 +3947,154 @@ mod tests {
 
         base.cf_domains = vec![" First.Example.com ".into(), "second.example.com".into()];
         let args = build_args(&base, "aa");
-        // The old engine knows a single domain: the first entry of the list.
-        assert!(args
+        // R3: the repeatable flag carries every domain in priority order.
+        let domains: Vec<&str> = args
             .windows(2)
-            .any(|w| w[0] == "--cfproxy-domain" && w[1] == "first.example.com"));
+            .filter(|w| w[0] == "--cfproxy-domain")
+            .map(|w| w[1].as_str())
+            .collect();
+        assert_eq!(domains, vec!["first.example.com", "second.example.com"]);
 
-        // The dedicated old-engine field still wins when both are set.
-        base.cfproxy_user_domain = "legacy.example.com".into();
-        let args = build_args(&base, "aa");
+        // A config written for the old engine keeps its single domain.
+        let mut legacy = cfg();
+        legacy.cfproxy_user_domain = "legacy.example.com".into();
+        let args = build_args(&legacy, "aa");
+        assert_eq!(args.iter().filter(|a| *a == "--cfproxy-domain").count(), 1);
         assert!(args
             .windows(2)
             .any(|w| w[0] == "--cfproxy-domain" && w[1] == "legacy.example.com"));
-        assert_eq!(args.iter().filter(|a| *a == "--cfproxy-domain").count(), 1);
+    }
+
+    #[test]
+    fn python_argv_carries_every_domain_worker_and_flag() {
+        let mut full = cfg();
+        full.cf_domains = vec!["one.example.com".into(), "two.example.com".into()];
+        full.cf_worker_domains = vec!["w1.workers.dev".into(), " w2.workers.dev ".into()];
+        full.no_secure = true;
+        full.force_test_dc = true;
+        full.proxy_protocol = true;
+
+        let args = build_args(&full, "aa");
+        let domains: Vec<&str> = args
+            .windows(2)
+            .filter(|w| w[0] == "--cfproxy-domain")
+            .map(|w| w[1].as_str())
+            .collect();
+        assert_eq!(domains, vec!["one.example.com", "two.example.com"]);
+
+        let workers: Vec<&str> = args
+            .windows(2)
+            .filter(|w| w[0] == "--cfproxy-worker-domain")
+            .map(|w| w[1].as_str())
+            .collect();
+        assert_eq!(workers, vec!["w1.workers.dev", "w2.workers.dev"]);
+
+        for flag in ["--no-secure", "--force-test-dc", "--proxy-protocol"] {
+            assert!(args.iter().any(|a| a == flag), "{flag} is missing");
+        }
+    }
+
+    #[test]
+    fn default_config_keeps_the_argv_minimal() {
+        // R8: the defaults are the same as before, including the engine's own
+        // datacenter map and Cloudflare list.
+        let args = build_args(&cfg(), "aa");
+        for absent in [
+            "--no-secure",
+            "--force-test-dc",
+            "--proxy-protocol",
+            "--cfproxy-domain",
+            "--cfproxy-worker-domain",
+        ] {
+            assert!(
+                !args.iter().any(|a| a == absent),
+                "{absent} must not be passed by default"
+            );
+        }
+        assert_eq!(args.iter().filter(|a| *a == "--dc-ip").count(), 2);
+        assert!(args.windows(2).any(|w| w[0] == "--buf-kb" && w[1] == "256"));
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "--pool-size" && w[1] == "4"));
+    }
+
+    #[test]
+    fn the_new_engine_takes_every_worker_and_no_secure() {
+        let mut full = cfg();
+        full.cf_worker_domains = vec!["W1.workers.dev".into(), "w2.workers.dev".into()];
+        full.no_secure = true;
+        full.force_test_dc = true;
+        full.proxy_protocol = true;
+
+        let args = build_rs_args(&full, "aa");
+        let workers: Vec<&str> = args
+            .windows(2)
+            .filter(|w| w[0] == "--cf-worker-domain")
+            .map(|w| w[1].as_str())
+            .collect();
+        assert_eq!(workers, vec!["w1.workers.dev", "w2.workers.dev"]);
+        // R4: `--no-secure` maps to the Rust engine's Cloudflare-only switch.
+        assert!(args.iter().any(|a| a == "--cf-disable-tls"));
+        // No Rust equivalent: these must be dropped, never passed as unknown.
+        for absent in ["--no-secure", "--force-test-dc", "--proxy-protocol"] {
+            assert!(
+                !args.iter().any(|a| a == absent),
+                "{absent} has no Rust equivalent"
+            );
+        }
+
+        // TLS stays on unless the user asked otherwise.
+        assert!(!build_rs_args(&cfg(), "aa")
+            .iter()
+            .any(|a| a == "--cf-disable-tls"));
+    }
+
+    #[test]
+    fn dc_redirects_are_dc_colon_ip() {
+        let saved = validate_dc_ips(&[
+            " 2:149.154.167.220 ".into(),
+            // IPv6 brings its own colons: only the first one separates the DC.
+            "203:2A00:1450:4001::1".into(),
+            "2:149.154.167.220".into(),
+            "".into(),
+        ])
+        .expect("ips");
+        assert_eq!(saved, vec!["2:149.154.167.220", "203:2a00:1450:4001::1"]);
+        assert!(validate_dc_ips(&[]).expect("empty list").is_empty());
+    }
+
+    #[test]
+    fn dc_redirects_reject_bad_input() {
+        for bad in [
+            "",
+            "149.154.167.220",
+            "0:149.154.167.220",
+            "204:149.154.167.220",
+            "x:149.154.167.220",
+            "2:nope",
+            "2:",
+        ] {
+            assert!(validate_dc_redirect(bad).is_err(), "{bad} must be refused");
+        }
+
+        let count = MAX_DC_REDIRECTS + 1;
+        let too_many: Vec<String> = (1..=count)
+            .map(|dc| format!("{dc}:149.154.167.220"))
+            .collect();
+        let error = validate_dc_ips(&too_many).expect_err("must refuse");
+        assert!(error.contains(&MAX_DC_REDIRECTS.to_string()), "{error}");
+    }
+
+    #[test]
+    fn limits_stay_inside_the_engine_range() {
+        assert_eq!(validate_buf_kb(MIN_BUF_KB).unwrap(), MIN_BUF_KB);
+        assert_eq!(validate_buf_kb(MAX_BUF_KB).unwrap(), MAX_BUF_KB);
+        assert!(validate_buf_kb(MIN_BUF_KB - 1).is_err());
+        assert!(validate_buf_kb(MAX_BUF_KB + 1).is_err());
+
+        assert_eq!(validate_pool_size(0).unwrap(), 0);
+        assert_eq!(validate_pool_size(MAX_POOL_SIZE).unwrap(), MAX_POOL_SIZE);
+        assert!(validate_pool_size(MAX_POOL_SIZE + 1).is_err());
     }
 
     #[test]
