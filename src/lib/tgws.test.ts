@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   displayHost,
   isPublicBinding,
+  MAX_CF_DOMAINS,
+  normalizeTgwsEngine,
+  TGWS_ENGINES,
   tgwsEndpoint,
+  tgwsEngineLabel,
   tgwsLogTail,
   tgwsStateLabel,
   tgwsTone,
@@ -70,5 +74,38 @@ describe("tgwsLogTail", () => {
     expect(tail[0]).toBe("line-50");
     expect(tail[299]).toBe("line-349");
     expect(tgwsLogTail(["a"])).toEqual(["a"]);
+  });
+});
+
+describe("normalizeTgwsEngine", () => {
+  it("reads the stored value leniently, like the backend", () => {
+    expect(normalizeTgwsEngine("rs")).toBe("rs");
+    expect(normalizeTgwsEngine(" RS ")).toBe("rs");
+    expect(normalizeTgwsEngine("python")).toBe("python");
+    // `rust` is the backend's alias for the same engine.
+    expect(normalizeTgwsEngine("rust")).toBe("rs");
+    // An unknown or missing value is the engine the app would actually run.
+    expect(normalizeTgwsEngine("java")).toBe("python");
+    expect(normalizeTgwsEngine("")).toBe("python");
+    expect(normalizeTgwsEngine(undefined)).toBe("python");
+    expect(normalizeTgwsEngine(null)).toBe("python");
+  });
+});
+
+describe("tgwsEngineLabel", () => {
+  it("names both engines for the diagnostics card", () => {
+    expect(tgwsEngineLabel("rs")).toBe("Новый (beta)");
+    expect(tgwsEngineLabel("python")).toBe("Старый");
+    expect(tgwsEngineLabel(undefined)).toBe("Старый");
+  });
+});
+
+describe("TGWS_ENGINES", () => {
+  it("offers both engines, old first, and marks the new one as beta", () => {
+    expect(TGWS_ENGINES.map((option) => option.value)).toEqual(["python", "rs"]);
+    expect(TGWS_ENGINES[0].label).toContain("проверенный");
+    expect(TGWS_ENGINES[1].label).toContain("beta");
+    // The page and the backend must cap the list the same way.
+    expect(MAX_CF_DOMAINS).toBe(10);
   });
 });

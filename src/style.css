@@ -26,7 +26,6 @@
 :root {
   /* Satellite (default) — orbit-dial dashboard, cyan on deep blue. */
   color-scheme: dark;
-  --bg: #08131a;
   --bg-2: #0a1720;
   --surface: #0b1a23;
   --surface-2: #0f2029;
@@ -37,7 +36,6 @@
   --border: rgba(87, 215, 255, 0.16);
   --border-strong: rgba(87, 215, 255, 0.3);
   --accent: #57d7ff;
-  --accent-hover: #8ae6ff;
   --accent-soft: rgba(87, 215, 255, 0.14);
   --accent-text: #a9ecff;
   --ok: #57c79b;
@@ -69,16 +67,10 @@
   --fs-body: 13.5px;
   --fs-title: 15px;
   --fs-page: 20px;
-  --fs-metric: 26px;
 
   /* Shared control metrics: themes and new components line up on these. */
   --control-h: 36px;
   --control-h-sm: 30px;
-  --card-pad: 16px;
-  --row-h: 44px;
-
-  /* Text on filled status colours. Dark ink on light fills. */
-  --danger-foreground: #2b0d0e;
 
   /* Button system: the only place button colours live. Themes override these
      values, never the geometry, typography or shadows. */
@@ -95,7 +87,7 @@
   --btn-danger-fg: #ffb3b3;
   --btn-danger-border: rgba(224, 112, 112, 0.38);
 
-  /* One UI face for the whole theme: Jura carries Cyrillic and Latin and is
+  /* One UI face for the whole theme: Inter carries Cyrillic and Latin and is
      used for headings, labels and controls alike. */
   --font:
     "Inter Variable", "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui,
@@ -120,13 +112,9 @@
   --destructive: #ff7a7a;
   --input: #1b3441;
   --ring: #57d7ff;
-  --radius: 8px;
 
   /* shell / glass */
   --app-bg: #071118;
-  --app-glow-1: rgba(87, 215, 255, 0.2);
-  --app-glow-2: rgba(92, 224, 176, 0.1);
-  --app-glow-3: rgba(120, 150, 255, 0.08);
   --glass-bg: rgba(11, 26, 35, 0.78);
   --glass-bg-2: rgba(7, 17, 24, 0.68);
   --glass-border: rgba(87, 215, 255, 0.16);
@@ -136,6 +124,36 @@
   --topbar-bg: rgba(7, 17, 24, 0.85);
   --hover-bg: rgba(87, 215, 255, 0.08);
   --grid-line: rgba(87, 215, 255, 0.06);
+
+  /* Colours lifted out of the rules below: rules reference tokens only, so a
+     new theme is one block of values and never a grep for hex codes. */
+  --overlay: rgba(10, 10, 14, 0.94);
+  --overlay-strong: rgba(6, 6, 10, 0.66);
+  --warn-strong: #f0b232;
+  --warn-border: rgba(240, 178, 50, 0.3);
+  --warn-muted: #d9c38d;
+  --warn-pill-fg: #f4c65c;
+  --ok-pulse: #23a55a;
+  --danger-hover: #f23f43;
+  --danger-hover-fg: #ff9a9c;
+  --brand-telegram: #2aabee;
+  --brand-telegram-deep: #1b7fba;
+  --window-close: #d9363e;
+  --scrollbar-hover: #4a4a58;
+  --ink-on-accent: #ffffff;
+  --neutral-line: rgba(255, 255, 255, 0.08);
+  --neutral-fill: rgba(255, 255, 255, 0.035);
+  --inset-light: rgba(255, 255, 255, 0.18);
+  --inset-line: rgba(255, 255, 255, 0.06);
+  --shadow-brand: rgba(0, 0, 0, 0.35);
+  --grid-mask: rgba(0, 0, 0, 0.55);
+  /* Theme previews are static by design: they must not follow the live theme. */
+  --preview-bg: #15161b;
+  --preview-bg-2: #272832;
+  --preview-satellite: #57d7ff;
+  --preview-satellite-deep: #0b1a23;
+  --preview-carmine: #1b1b1b;
+  --preview-carmine-accent: #a8274d;
 }
 
 /* ---------- Reset / base ---------- */
@@ -159,7 +177,7 @@ body,
 }
 
 body {
-  background: var(--bg);
+  background: var(--app-bg);
   color: var(--text);
   font-family: var(--font);
   font-size: var(--fs-body);
@@ -211,7 +229,7 @@ button {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #4a4a58;
+  background: var(--scrollbar-hover);
 }
 
 .muted {
@@ -240,29 +258,18 @@ button {
   color: var(--text-3);
 }
 
-/* ---------- App shell ---------- */
-.app {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg);
-}
-
-/* Sidebar cards must keep their content height: when the column is shorter
-   than its content, the column scrolls instead of shrinking the cards (which
-   used to push the "Остановить обход" button outside its panel). */
-.column-side > .panel {
-  flex: 0 0 auto;
-}
-
 /* ---------- Panel ---------- */
 .panel {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
+  background: linear-gradient(160deg, var(--glass-bg), var(--glass-bg-2));
+  box-shadow:
+    0 18px 50px var(--glass-shadow),
+    inset 0 1px 0 var(--glass-highlight);
+  backdrop-filter: blur(18px) saturate(135%);
 }
 
 .panel-head {
@@ -324,6 +331,7 @@ button {
 .strategy-panel .panel-body {
   flex: 1;
   min-height: 0;
+  gap: 12px;
 }
 
 /* ---------- Buttons ---------- */
@@ -334,6 +342,19 @@ button {
     border-color var(--motion),
     color var(--motion),
     opacity var(--motion);
+}
+
+/* Stopping the bypass is a normal action, not an alarm: a secondary button
+   with danger text, its own width and the standard 36 px height. */
+.status-panel .stop-bypass {
+  align-self: flex-start;
+  color: var(--danger);
+  border-color: color-mix(in oklab, var(--danger) 40%, transparent);
+}
+
+.status-panel .stop-bypass:hover:not(:disabled) {
+  background: var(--danger-soft);
+  border-color: color-mix(in oklab, var(--danger) 55%, transparent);
 }
 
 .icon-btn {
@@ -362,8 +383,8 @@ button {
 
 .icon-btn.danger:hover:not(:disabled) {
   background: var(--danger-soft);
-  border-color: rgba(242, 63, 67, 0.5);
-  color: #ff9a9c;
+  border-color: color-mix(in oklab, var(--danger-hover) 50%, transparent);
+  color: var(--danger-hover-fg);
 }
 
 .icon-btn:disabled {
@@ -435,7 +456,7 @@ button {
 
 .status-dot.ok {
   background: var(--ok);
-  box-shadow: 0 0 0 0 rgba(35, 165, 90, 0.5);
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--ok-pulse) 50%, transparent);
   animation: pulse 2s infinite;
 }
 
@@ -445,13 +466,13 @@ button {
 
 @keyframes pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(35, 165, 90, 0.45);
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--ok-pulse) 45%, transparent);
   }
   70% {
-    box-shadow: 0 0 0 8px rgba(35, 165, 90, 0);
+    box-shadow: 0 0 0 8px transparent;
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(35, 165, 90, 0);
+    box-shadow: 0 0 0 0 transparent;
   }
 }
 
@@ -463,6 +484,10 @@ button {
   color: var(--text);
   font-size: 12px;
   cursor: pointer;
+  transition:
+    filter 200ms ease,
+    border-color var(--motion),
+    background var(--motion);
 }
 
 .select-sm {
@@ -472,25 +497,21 @@ button {
 
 .check-line {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
-  color: var(--text-2);
-  font-size: 11.5px;
+  margin-top: -2px;
+  color: var(--text-3);
+  font-size: 12px;
   line-height: 1.4;
-  cursor: pointer;
-}
-
-.check-line input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
-  margin-top: 1px;
-  accent-color: var(--accent);
   cursor: pointer;
 }
 
 .budget {
   width: 110px;
-  accent-color: var(--accent);
+  height: 18px;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
 }
 
 /* ---------- Toggle ---------- */
@@ -528,16 +549,11 @@ button {
 }
 
 /* ---------- Strategy panel ---------- */
-.strategy-panel .panel-body {
-  gap: 10px;
-}
-
 .toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--space-4);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
+  align-items: end;
+  gap: 20px;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -548,22 +564,11 @@ input[type="range"] {
   accent-color: var(--accent);
 }
 
-.check-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-3);
-  font-size: 12px;
-}
-
-.check-line input[type="checkbox"] {
-  accent-color: var(--accent);
-}
-
 .tool-group {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
+  min-width: 0;
 }
 
 .tool-label {
@@ -579,6 +584,7 @@ input[type="range"] {
   align-items: center;
   gap: 7px;
   flex-wrap: wrap;
+  min-height: 30px;
 }
 
 .bench-progress {
@@ -590,14 +596,20 @@ input[type="range"] {
 .progress-bar {
   height: 5px;
   border-radius: 3px;
-  background: var(--surface-2);
+  background: color-mix(in oklab, var(--text-3) 26%, transparent);
   overflow: hidden;
 }
 
 .progress-bar > div {
   height: 100%;
-  background: var(--accent);
-  transition: width 0.25s;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--accent) 55%, transparent),
+    var(--accent)
+  );
+  box-shadow: 0 0 10px color-mix(in oklab, var(--accent) 40%, transparent);
+  transition: width 240ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .quick-panel {
@@ -680,6 +692,7 @@ input[type="range"] {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
+  padding: 0 1px;
   color: var(--text-3);
   font-size: var(--fs-caption);
 }
@@ -811,7 +824,7 @@ input[type="range"] {
 }
 
 .strategy-row.best:not(.selected) {
-  border-color: rgba(240, 178, 50, 0.35);
+  border-color: color-mix(in oklab, var(--warn-strong) 35%, transparent);
 }
 
 .row-main {
@@ -1020,6 +1033,14 @@ input[type="range"] {
   user-select: none;
 }
 
+/* Export and import sit side by side and wrap on a narrow window. */
+.backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: 2px;
+}
+
 .section + .section {
   padding-top: var(--space-3);
   border-top: 1px solid var(--border);
@@ -1104,7 +1125,7 @@ input[type="range"] {
   flex-direction: column;
   gap: 8px;
   padding: 11px;
-  border: 1px solid rgba(240, 178, 50, 0.3);
+  border: 1px solid var(--warn-border);
   border-radius: var(--radius-md);
   background: var(--warn-soft);
 }
@@ -1115,7 +1136,7 @@ input[type="range"] {
 }
 
 .onboarding .muted {
-  color: #d9c38d;
+  color: var(--warn-muted);
 }
 
 /* ---------- First-run setup ---------- */
@@ -1128,7 +1149,7 @@ input[type="range"] {
   display: grid;
   place-items: center;
   padding: var(--space-5);
-  background: rgba(10, 10, 14, 0.94);
+  background: var(--overlay);
   backdrop-filter: blur(3px);
 }
 
@@ -1245,7 +1266,7 @@ input[type="range"] {
   display: grid;
   place-items: center;
   padding: var(--space-5);
-  background: rgba(6, 6, 10, 0.66);
+  background: var(--overlay-strong);
   backdrop-filter: blur(2px);
 }
 
@@ -1384,10 +1405,6 @@ input[type="range"] {
 }
 
 /* ---------- Application shell / glass theme ---------- */
-body {
-  background: var(--app-bg);
-}
-
 .app-shell {
   position: relative;
   height: 100vh;
@@ -1405,7 +1422,7 @@ body {
     linear-gradient(var(--grid-line) 1px, transparent 1px),
     linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
   background-size: 42px 42px;
-  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.55), transparent 75%);
+  mask-image: linear-gradient(to bottom, var(--grid-mask), transparent 75%);
 }
 
 .sidebar {
@@ -1444,11 +1461,12 @@ body {
   flex: 0 0 auto;
   border-radius: 8px;
   object-fit: cover;
+  transition: transform 320ms cubic-bezier(0.34, 1.45, 0.64, 1);
   /* Same halo the nav icons get on hover, so the mark reads as lit. */
   filter: drop-shadow(0 0 6px color-mix(in oklab, var(--accent) 55%, transparent));
   box-shadow:
-    0 6px 16px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    0 6px 16px var(--shadow-brand),
+    inset 0 1px 0 var(--inset-light);
 }
 
 /* The same logo in two palettes; the theme attribute picks one. */
@@ -1483,6 +1501,7 @@ body {
 }
 
 .nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1505,14 +1524,14 @@ body {
 }
 
 .nav-item.active {
-  color: #fff;
+  color: var(--ink-on-accent);
   background: linear-gradient(
     90deg,
     color-mix(in oklab, var(--accent) 24%, transparent),
     color-mix(in oklab, var(--accent) 8%, transparent)
   );
   border-color: color-mix(in oklab, var(--accent) 35%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 var(--inset-line);
 }
 
 .nav-label {
@@ -1584,6 +1603,7 @@ body {
   border-bottom: 1px solid var(--glass-border);
   background: var(--topbar-bg);
   backdrop-filter: blur(24px) saturate(140%);
+  -webkit-app-region: drag;
 }
 
 .topbar-title {
@@ -1609,9 +1629,9 @@ body {
   align-items: center;
   gap: 6px;
   padding: 5px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--neutral-line);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--neutral-fill);
   color: var(--text-2);
   font-size: var(--fs-label);
   white-space: nowrap;
@@ -1639,16 +1659,16 @@ body {
   align-items: center;
   gap: 6px;
   padding: 5px 9px;
-  border: 1px solid rgba(240, 178, 50, 0.26);
+  border: 1px solid color-mix(in oklab, var(--warn-strong) 26%, transparent);
   border-radius: 999px;
-  background: rgba(240, 178, 50, 0.09);
-  color: #f4c65c;
+  background: color-mix(in oklab, var(--warn-strong) 9%, transparent);
+  color: var(--warn-pill-fg);
   font-size: 12px;
   white-space: nowrap;
 }
 
 .update-pill:hover {
-  background: rgba(240, 178, 50, 0.15);
+  background: color-mix(in oklab, var(--warn-strong) 15%, transparent);
 }
 
 .page-content {
@@ -1692,16 +1712,6 @@ body {
   min-height: 0;
 }
 
-.glass-card,
-.panel {
-  border: 1px solid var(--glass-border);
-  background: linear-gradient(160deg, var(--glass-bg), var(--glass-bg-2));
-  box-shadow:
-    0 18px 50px var(--glass-shadow),
-    inset 0 1px 0 var(--glass-highlight);
-  backdrop-filter: blur(18px) saturate(135%);
-}
-
 .eyebrow {
   display: block;
   margin-bottom: 3px;
@@ -1732,7 +1742,6 @@ body {
 /* ---------- Carmine: flat near-black with a crimson accent ---------- */
 [data-theme="carmine"] {
   color-scheme: dark;
-  --bg: #161616;
   --bg-2: #1b1b1b;
   --surface: #1c1c1c;
   --surface-2: #242424;
@@ -1743,7 +1752,6 @@ body {
   --border: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.16);
   --accent: #e81c5a;
-  --accent-hover: #ff3d72;
   --accent-soft: rgba(232, 28, 90, 0.14);
   --accent-text: #ff5c8a;
   --ok: #4ecb7a;
@@ -1759,7 +1767,9 @@ body {
   --popover: #1c1c1c;
   --popover-foreground: #e7e7e7;
   --primary: #e81c5a;
-  --primary-foreground: #ffffff;
+  /* White on #e81c5a is 4.43:1 — below AA for 13 px. Dark ink gives 4.61:1 and
+     matches the satellite theme, whose primary also takes dark ink. */
+  --primary-foreground: #0d0207;
   --secondary: #2e2e2e;
   --secondary-foreground: #e7e7e7;
   --muted: #242424;
@@ -1768,9 +1778,6 @@ body {
   --ring: #e81c5a;
   --focus-ring: 0 0 0 2px rgba(232, 28, 90, 0.5);
   --app-bg: #121212;
-  --app-glow-1: rgba(232, 28, 90, 0.18);
-  --app-glow-2: rgba(44, 164, 66, 0.1);
-  --app-glow-3: rgba(232, 28, 90, 0.08);
   --glass-bg: rgba(37, 37, 37, 0.72);
   --glass-bg-2: rgba(20, 20, 20, 0.7);
   --glass-border: rgba(255, 255, 255, 0.09);
@@ -1875,7 +1882,7 @@ body {
 }
 
 .traffic-arrow.down {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .traffic-arrow.up {
@@ -1890,48 +1897,122 @@ body {
 .traffic-chart {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 
-.traffic-series {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
+/* The legend sits above the plot: colour + name, never over the lines. */
+.traffic-legend {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  cursor: help;
+  gap: 14px;
+  color: var(--text-2);
+  font-size: var(--fs-caption);
 }
 
-.series-name {
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-item.down {
+  color: var(--accent-text);
+}
+
+.legend-item.up {
+  color: var(--text-3);
+}
+
+.legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* The dot matches the line, the label keeps the readable accent text. */
+.legend-item.down .legend-dot {
+  background: var(--accent);
+}
+
+/* One overlay owns the hover for both series, so a tip can show both values. */
+.traffic-plot {
+  position: relative;
+  height: 64px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--surface-2) 55%, transparent);
+}
+
+.traffic-plot svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.traffic-cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border-strong);
+  pointer-events: none;
+}
+
+.traffic-tip {
+  position: absolute;
+  top: 5px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--text-3);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.traffic-tip strong {
+  color: var(--text);
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+/* The time axis lives outside the plot, so labels never sit on the lines. */
+.traffic-axis {
+  display: flex;
+  justify-content: space-between;
   color: var(--text-3);
   font-size: 11px;
 }
 
-.traffic-series.down .series-name {
-  color: var(--accent);
-}
-
-.traffic-down {
-  color: var(--accent);
-}
-
-.traffic-up {
-  color: var(--text-3);
-}
-
 .traffic-empty {
+  flex: 1;
+  grid-column: 1 / -1;
+  display: grid;
+  place-items: center;
+  min-height: 64px;
   margin: 0;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  font-size: var(--fs-caption);
+  text-align: center;
 }
 
 @media (max-width: 860px) {
   .traffic-body {
     grid-template-columns: 1fr;
   }
-}
-
-.home-history {
-  width: 120px;
-  color: var(--text-3);
 }
 
 .home-hero-content {
@@ -1983,19 +2064,19 @@ body {
   display: grid;
   place-items: center;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: linear-gradient(145deg, var(--accent), color-mix(in oklab, var(--accent) 70%, #000));
-  color: #fff;
+  border: 1px solid var(--neutral-line);
+  background: linear-gradient(145deg, var(--accent), color-mix(in oklab, var(--accent) 70%, black));
+  color: var(--ink-on-accent);
   box-shadow:
     0 8px 20px color-mix(in oklab, var(--accent) 24%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    inset 0 1px 0 var(--inset-light);
 }
 
 .power-icon.telegram {
-  background: linear-gradient(145deg, #2aabee, #1b7fba);
+  background: linear-gradient(145deg, var(--brand-telegram), var(--brand-telegram-deep));
   box-shadow:
-    0 8px 20px rgba(42, 171, 238, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    0 8px 20px color-mix(in oklab, var(--brand-telegram) 20%, transparent),
+    inset 0 1px 0 var(--inset-light);
 }
 
 .power-content {
@@ -2042,7 +2123,7 @@ body {
 
 .theme-picker {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 7px;
 }
 
@@ -2074,15 +2155,19 @@ body {
   height: 30px;
   border-radius: 5px;
   border: 1px solid var(--border);
-  background: linear-gradient(145deg, #15161b, #272832);
+  background: linear-gradient(145deg, var(--preview-bg), var(--preview-bg-2));
 }
 
 .theme-preview[data-theme-preview="satellite"] {
-  background: radial-gradient(circle at 70% 72%, #57d7ff, #0b1a23 62%);
+  background: radial-gradient(
+    circle at 70% 72%,
+    var(--preview-satellite),
+    var(--preview-satellite-deep) 62%
+  );
 }
 
 .theme-preview[data-theme-preview="carmine"] {
-  background: linear-gradient(145deg, #1b1b1b, #a8274d);
+  background: linear-gradient(145deg, var(--preview-carmine), var(--preview-carmine-accent));
 }
 
 @media (max-width: 900px) {
@@ -2092,10 +2177,6 @@ body {
 }
 
 /* ---------- Frameless window ---------- */
-.topbar {
-  -webkit-app-region: drag;
-}
-
 .topbar button,
 .topbar .status-chip,
 .topbar .update-pill,
@@ -2127,8 +2208,8 @@ body {
 }
 
 .window-control.close:hover {
-  background: #d9363e;
-  color: #fff;
+  background: var(--window-close);
+  color: var(--ink-on-accent);
 }
 
 /* Window resizing is native: with `decorations: false` and `shadow: true` tao
@@ -2137,44 +2218,16 @@ body {
    in-page overlay would sit on top of the scrollbar and steal its hover area. */
 
 /* ---------- Zapret toolbar ---------- */
-.strategy-panel .panel-body {
-  gap: 12px;
-}
-
 /* The 1.1.0 rule used to zero the padding and strip the frame to a bottom
    border, which left "ПРОВЕРКА" and the buttons flush against the card edge.
    The 1.4.0 card (border, radius, surface, 10px 12px) now owns the look. */
-.toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
-  align-items: end;
-  gap: 20px;
-}
-
-.tool-group {
-  gap: 6px;
-  min-width: 0;
-}
-
 .tool-group + .tool-group {
   padding-left: 20px;
   border-left: 1px solid var(--border);
 }
 
-.tool-row {
-  min-height: 30px;
-}
-
 .tool-row .ui-button {
   align-self: stretch;
-}
-
-.result-meta {
-  padding: 0 1px;
-}
-
-.check-line {
-  margin-top: -2px;
 }
 
 @media (max-width: 900px) {
@@ -2188,12 +2241,6 @@ body {
     padding-left: 0;
     border-top: 1px solid var(--border);
     border-left: 0;
-  }
-}
-
-@keyframes update-spin {
-  to {
-    transform: rotate(360deg);
   }
 }
 
@@ -2308,10 +2355,6 @@ body {
 }
 
 /* ---------- Motion: sidebar icons ---------- */
-.nav-item {
-  position: relative;
-}
-
 .nav-item::before {
   content: "";
   position: absolute;
@@ -2423,12 +2466,10 @@ body {
    gets the same treatment on hover. The halo lives on ::after so it never
    fights the existing box-shadow stacks. */
 :is(
-  .btn,
   .ui-button,
   .icon-btn,
   .window-control,
   .update-pill,
-  .update-orbit,
   .collapse-btn,
   .nav-item,
   .theme-option,
@@ -2440,12 +2481,10 @@ body {
 }
 
 :is(
-  .btn,
   .ui-button,
   .icon-btn,
   .window-control,
   .update-pill,
-  .update-orbit,
   .collapse-btn,
   .nav-item,
   .theme-option,
@@ -2466,12 +2505,10 @@ body {
 }
 
 :is(
-    .btn,
     .ui-button,
     .icon-btn,
     .window-control,
     .update-pill,
-    .update-orbit,
     .collapse-btn,
     .nav-item,
     .theme-option,
@@ -2480,12 +2517,10 @@ body {
     [data-slot="switch"]
   ):hover:not(:disabled)::after,
 :is(
-    .btn,
     .ui-button,
     .icon-btn,
     .window-control,
     .update-pill,
-    .update-orbit,
     .collapse-btn,
     .nav-item,
     .theme-option,
@@ -2499,19 +2534,12 @@ body {
 /* The close control keeps its red identity instead of turning accent-coloured. */
 .window-control.close::after {
   box-shadow:
-    0 0 0 1px rgba(217, 54, 62, 0.35),
-    0 0 16px 2px rgba(217, 54, 62, 0.4);
+    0 0 0 1px color-mix(in oklab, var(--window-close) 35%, transparent),
+    0 0 16px 2px color-mix(in oklab, var(--window-close) 40%, transparent);
 }
 
 /* A native <select> is a replaced element: it never renders ::after, so the
    same halo comes from a filter plus an accent border. */
-.select {
-  transition:
-    filter 200ms ease,
-    border-color var(--motion),
-    background var(--motion);
-}
-
 .select:hover:not(:disabled),
 .select:focus-visible {
   border-color: color-mix(in oklab, var(--accent) 45%, transparent);
@@ -2521,14 +2549,6 @@ body {
 /* ---------- Slider and progress ---------- */
 /* Native range styling ignores the theme accent and reads as a grey system
    control; draw the track and thumb from tokens instead. */
-.budget {
-  width: 110px;
-  height: 18px;
-  appearance: none;
-  background: transparent;
-  cursor: pointer;
-}
-
 .budget::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;
@@ -2563,6 +2583,7 @@ body {
   appearance: none;
   width: 15px;
   height: 15px;
+  margin-top: 1px;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
@@ -2600,33 +2621,14 @@ body {
   border-color: color-mix(in oklab, var(--accent) 55%, transparent);
 }
 
+/* A disabled checkbox must stay readable: 0.5 opacity dropped the frame under
+   1.5:1, so the border keeps --text-3 (4.1:1 in carmine, 4.8:1 in satellite
+   once the 0.8 fade is applied) and only the fill fades. */
 .check-line input[type="checkbox"]:disabled {
   cursor: default;
-  opacity: 0.5;
-}
-
-/* The old fill ran accent -> danger, so every run looked like a failure. */
-.progress-bar {
-  height: 5px;
-  border-radius: 3px;
-  background: color-mix(in oklab, var(--text-3) 26%, transparent);
-  overflow: hidden;
-}
-
-.progress-bar > div {
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(
-    90deg,
-    color-mix(in oklab, var(--accent) 55%, transparent),
-    var(--accent)
-  );
-  box-shadow: 0 0 10px color-mix(in oklab, var(--accent) 40%, transparent);
-  transition: width 240ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.brand-icon {
-  transition: transform 320ms cubic-bezier(0.34, 1.45, 0.64, 1);
+  border-color: var(--text-3);
+  background: var(--surface);
+  opacity: 0.8;
 }
 
 .sidebar-brand:hover .brand-icon {
@@ -2686,12 +2688,10 @@ body {
   }
 
   :is(
-    .btn,
     .ui-button,
     .icon-btn,
     .window-control,
     .update-pill,
-    .update-orbit,
     .collapse-btn,
     .nav-item,
     .theme-option,

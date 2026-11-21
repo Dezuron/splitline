@@ -1,9 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type {
   AppStatus,
   AppUpdateInfo,
+  AutostartStatus,
+  BackupExportReport,
+  BackupImportReport,
+  BackupPreview,
   BenchProgress,
   BenchSummary,
   ConfigView,
@@ -13,6 +17,7 @@ import type {
   TgwsStatus,
   TgwsDiagnosis,
   TgwsUpdateInfo,
+  TrayNotice,
   UpdateInfo,
   WhatsNew,
   XrayBasesSummary,
@@ -22,8 +27,16 @@ import type {
   XrayStatus,
 } from "../types";
 import { confirmAction } from "../lib/confirm";
+import { backupFileName, fileNameOf } from "../lib/backup";
 import { toast } from "../lib/toast";
 import { tgwsLogTail } from "../lib/tgws";
+import {
+  flushTrayToasts,
+  queueTrayToast,
+  showTrayNotice,
+  syncTray,
+  trayHintOnce,
+} from "../lib/tray";
 import {
   status,
   config,
@@ -38,6 +51,7 @@ import {
   busy,
   selected,
   starting,
+  backupBusy,
   benchSummary,
   benchProgress,
   benchRunning,
@@ -67,6 +81,7 @@ import {
   tgwsProgress,
   xrayStatus,
   xrayProfiles,
+  xrayLastTrafficAt,
   xrayLogs,
   downloads,
   xrayBusy,
@@ -117,11 +132,33 @@ export function normalizeTheme(value: string | undefined): ThemeId {
   return (value && LEGACY_THEMES[value]) || "satellite";
 }
 
+/** Where the applied theme is cached: read in `main.ts` before the first render. */
+export const THEME_CACHE_KEY = "splitline.theme";
+
+export function readCachedTheme(): ThemeId | undefined {
+  try {
+    const value = localStorage.getItem(THEME_CACHE_KEY);
+    return value ? normalizeTheme(value) : undefined;
+  } catch {
+    // Storage can be unavailable; the caller falls back to the default theme.
+    return undefined;
+  }
+}
+
 export function applyTheme(theme: string | undefined) {
   const normalized = normalizeTheme(theme);
   document.documentElement.dataset.theme = normalized;
   // Both remaining themes are dark; keep Tailwind/shadcn `dark:` variants on.
   document.documentElement.classList.add("dark");
+  try {
+    // `refreshInternal` reapplies the theme every few seconds: skip the write
+    // when the cache already holds it.
+    if (localStorage.getItem(THEME_CACHE_KEY) !== normalized) {
+      localStorage.setItem(THEME_CACHE_KEY, normalized);
+    }
+  } catch {
+    // The theme still applies; only the next cold start loses the cache.
+  }
 }
 
 async function refreshInternal(quiet: boolean) {
@@ -144,6 +181,7 @@ async function refreshInternal(quiet: boolean) {
       nextStatus.strategies.some((s) => s.name === selected.value) ||
       nextStatus.generated.some((g) => g.name === selected.value);
     if (!exists) selected.value = nextStatus.current_strategy || "";
+    syncTrayState();
   } catch (error) {
     const now = Date.now();
     if (!quiet || now - lastRefreshError > 30_000) {
@@ -151,6 +189,18 @@ async function refreshInternal(quiet: boolean) {
       toast("error", `Не удалось обновить состояние: ${error}`);
     }
   }
+}
+
+/**
+ * Mirrors the running services into the tray. Texts and "installed" checks stay
+ * in Rust; zapret is read there too, so this call also picks up a freshly
+ * installed runtime or subscription.
+ */
+function syncTrayState() {
+  void syncTray({
+    tgws: tgwsStatus.value?.state === "running",
+    xray: xrayStatus.value?.state === "running",
+  });
 }
 
 export function refresh(quiet = true) {
@@ -192,6 +242,7 @@ async function pollTraffic() {
       lastTrafficUp = 0;
       lastTrafficDown = 0;
     }
+    xrayLastTrafficAt.value = 0;
     return;
   }
   try {
@@ -203,6 +254,10 @@ async function pollTraffic() {
     lastTrafficDown = stats.down;
     trafficTotalUp.value = stats.up;
     trafficTotalDown.value = stats.down;
+    // The green "VPN работает" state needs a recent byte, not just a live core.
+    if (deltaUp > 0 || deltaDown > 0) {
+      xrayLastTrafficAt.value = Math.floor(Date.now() / 1000);
+    }
     const seconds = TRAFFIC_INTERVAL_MS / 1000;
     trafficUp.value = deltaUp / seconds;
     trafficDown.value = deltaDown / seconds;
@@ -337,6 +392,7 @@ function onVisibilityChange() {
     startPingTimer();
     startProbeTimer();
     startRefreshTimer();
+    flushTrayToasts();
   }
 }
 
@@ -365,6 +421,7 @@ export async function initStore() {
     }),
     await listen<TgwsStatus>("tgws-status", (event) => {
       tgwsStatus.value = event.payload;
+      syncTrayState();
     }),
     await listen<string>("tgws-log", (event) => {
       tgwsLogs.value = tgwsLogTail([...tgwsLogs.value, event.payload]);
@@ -378,6 +435,7 @@ export async function initStore() {
     }),
     await listen<XrayStatus>("xray-status", (event) => {
       xrayStatus.value = event.payload;
+      syncTrayState();
     }),
     await listen<string>("proxy-guard", (event) => {
       toast("warning", event.payload);
@@ -392,6 +450,24 @@ export async function initStore() {
     }),
     await listen<DownloadProgress>("download-progress", (event) => {
       applyDownloadProgress(event.payload);
+    }),
+    // A failure from the tray must reach the user: now if the window is open,
+    // otherwise on the next show — a toast behind a hidden window is wasted.
+    await listen<TrayNotice>("tray-notice", (event) => {
+      showTrayNotice(event.payload);
+    }),
+    await listen("app-hidden", () => {
+      // Explained once: the window is gone from the taskbar but the app lives.
+      const hint = trayHintOnce();
+      if (hint) queueTrayToast("info", hint);
+    }),
+    await listen("app-shown", () => {
+      flushTrayToasts();
+      // The tray can start or stop a service while the window is hidden: pick
+      // the state up at once instead of waiting for the next poll tick.
+      void refreshInternal(true);
+      void refreshTgws();
+      void refreshXray();
     }),
   ];
 
@@ -913,7 +989,10 @@ export async function useDefaultRuntimeFolder(): Promise<boolean> {
 
 export async function toggleAutostart(enabled: boolean) {
   try {
-    await invoke("set_autostart", { enabled });
+    const result = await invoke<AutostartStatus>("set_autostart", { enabled });
+    // The task could not be created and the Run key was used instead: Windows
+    // will show a UAC prompt at logon, and the user must know that.
+    if (result?.warning) toast("warning", result.warning);
     await refreshInternal(true);
   } catch (error) {
     toast("error", String(error));
@@ -964,6 +1043,101 @@ export async function openFolder() {
   }
 }
 
+// ---------- backup: export and import of settings ----------
+
+const ARCHIVE_FILTERS = [{ name: "Архив Splitline", extensions: ["zip"] }];
+
+/**
+ * Writes the settings archive the user chooses. `includeSecrets` is the explicit
+ * opt-in for the proxy key and the subscription URL; without it the backend
+ * blanks both fields and leaves the subscription snapshot out.
+ */
+export async function exportSettings(includeSecrets: boolean) {
+  if (backupBusy.value) return;
+
+  let target: string | null;
+  try {
+    target = await saveDialog({
+      title: "Куда сохранить настройки",
+      defaultPath: backupFileName(),
+      filters: ARCHIVE_FILTERS,
+    });
+  } catch (error) {
+    toast("error", String(error));
+    return;
+  }
+  if (typeof target !== "string") return;
+
+  backupBusy.value = true;
+  try {
+    const report = await invoke<BackupExportReport>("export_settings", {
+      path: target,
+      includeSecrets,
+    });
+    toast("success", `Настройки сохранены: ${fileNameOf(report.path)}`);
+  } catch (error) {
+    toast("error", String(error));
+  } finally {
+    backupBusy.value = false;
+  }
+}
+
+/**
+ * Two steps on purpose: the archive is inspected first, the confirmation shows
+ * what it contains (and whether it carries secrets), and only then does the
+ * backend write anything. The backend copies the current state to `backups/`
+ * before it replaces it.
+ */
+export async function importSettings() {
+  if (backupBusy.value) return;
+
+  let picked: string | null;
+  try {
+    picked = await openDialog({
+      title: "Выберите архив с настройками",
+      multiple: false,
+      directory: false,
+      filters: ARCHIVE_FILTERS,
+    });
+  } catch (error) {
+    toast("error", String(error));
+    return;
+  }
+  if (typeof picked !== "string") return;
+
+  backupBusy.value = true;
+  try {
+    const preview = await invoke<BackupPreview>("inspect_backup", { path: picked });
+    const created = preview.created_label ? `Создан: ${preview.created_label}.` : "";
+    const { ok } = await confirmAction({
+      title: "Импортировать настройки?",
+      text: `${preview.summary} ${created} ${preview.warnings.join(" ")} Текущие настройки сохранятся в папке backups.`,
+      confirmLabel: "Импортировать",
+    });
+    if (!ok) return;
+
+    const report = await invoke<BackupImportReport>("import_settings", { path: picked });
+    await refreshInternal(true);
+    void refreshTgws();
+    void refreshXray();
+    try {
+      benchSummary.value = await invoke<BenchSummary | null>("get_last_bench");
+      benchHistory.value = await invoke<BenchSummary[]>("get_bench_history");
+    } catch (error) {
+      console.warn("Не удалось перечитать историю проверок", error);
+    }
+    if (report.warnings.length) {
+      toast("warning", report.warnings.join(" "));
+    } else {
+      toast("success", `Настройки импортированы. Копия прежних: ${fileNameOf(report.backup_path)}`);
+    }
+  } catch (error) {
+    toast("error", String(error));
+  } finally {
+    backupBusy.value = false;
+  }
+}
+
 // ---------- Telegram proxy ----------
 
 /** Loads everything the Telegram page renders: state, link and log tail. */
@@ -976,6 +1150,7 @@ export async function refreshTgws() {
     tgwsStatus.value = nextStatus;
     tgwsLogs.value = tgwsLogTail(logs);
     await refreshTgwsLink();
+    syncTrayState();
   } catch (error) {
     console.warn("Не удалось обновить состояние Telegram-прокси", error);
   }
@@ -1182,15 +1357,6 @@ export async function switchTgwsPort() {
   }
 }
 
-export async function toggleTgwsAutostart(enabled: boolean) {
-  try {
-    await invoke("set_tgws_autostart", { enabled });
-    await refreshInternal(true);
-  } catch (error) {
-    toast("error", String(error));
-  }
-}
-
 export async function copyTgwsLink() {
   if (!tgwsLink.value) return;
   try {
@@ -1218,6 +1384,52 @@ export async function openTgwsLog() {
   }
 }
 
+// ---------- Telegram proxy: engine and Cloudflare settings (TG-2) ----------
+
+/**
+ * Switches the proxy engine. The backend installs the target binary and
+ * restarts a running proxy itself, so this call is the whole action.
+ */
+export async function setTgwsEngine(engine: string) {
+  if (tgwsBusy.value) return;
+  tgwsBusy.value = true;
+  try {
+    const saved = await invoke<string>("set_tgws_engine", { engine });
+    await refreshInternal(true);
+    await refreshTgws();
+    toast(
+      "success",
+      saved === "rs" ? "Включён новый движок прокси." : "Включён старый движок прокси.",
+    );
+    return saved;
+  } catch (error) {
+    toast("error", String(error));
+    throw error;
+  } finally {
+    tgwsBusy.value = false;
+  }
+}
+
+/** Saves the Cloudflare domain list; the order is the engine's priority. */
+export function setTgwsDomains(domains: string[]) {
+  return setTgwsSetting<string[]>("set_tgws_domains", { domains });
+}
+
+/** Saves the Cloudflare Worker domain; an empty string turns it off. */
+export function setTgwsWorkerDomain(domain: string) {
+  return setTgwsSetting<string>("set_tgws_worker_domain", { domain });
+}
+
+/** Rotates across the domain list instead of always using the first one. */
+export function setTgwsBalance(enabled: boolean) {
+  return setTgwsSetting<boolean>("set_tgws_balance", { enabled });
+}
+
+/** Turns inbound FakeTLS on (a domain) or off (an empty string). */
+export function setTgwsFakeTlsDomain(domain: string) {
+  return setTgwsSetting<string>("set_tgws_fake_tls_domain", { domain });
+}
+
 // ---------- VPN (Xray subscription) ----------
 
 /** Loads what the VPN page renders: state, log tail and the Telegram link. */
@@ -1231,6 +1443,7 @@ export async function refreshXray() {
     xrayStatus.value = nextStatus;
     xrayLogs.value = tgwsLogTail(logs);
     xrayLink.value = link;
+    syncTrayState();
   } catch (error) {
     console.warn("Не удалось обновить состояние VPN", error);
   }

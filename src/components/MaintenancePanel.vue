@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed, onMounted, ref } from "vue";
 import Panel from "./Panel.vue";
 import Button from "./ui/button/Button.vue";
 import Toggle from "./Toggle.vue";
@@ -13,6 +13,7 @@ import {
   appUpdate,
   appUpdateProgress,
   appVersion,
+  backupBusy,
   benchRunning,
   busy,
   checkAppUpdate,
@@ -23,9 +24,13 @@ import {
   checkingUpdate,
   chooseRuntimeFolder,
   config,
+  exportSettings,
+  importSettings,
   installRuntime,
+  normalizeTheme,
   openFolder,
   openReleasePage,
+  readCachedTheme,
   runtimePath,
   runtimeReady,
   setAutoApply,
@@ -50,12 +55,19 @@ const themes = [
   { value: "carmine" as const, label: "Кармин" },
 ];
 
+/** Before the config arrives the picker follows the cached theme, so exactly
+ * one plate is highlighted from the first frame on the settings page. */
+const activeTheme = computed(() => normalizeTheme(config.value?.theme ?? readCachedTheme()));
+
 const tgwsVersion = computed(() =>
   tgwsVersionLabel(
     config.value?.tgws.installed_version || tgwsStatus.value?.installed_version,
     tgwsStatus.value?.binary_present,
   ),
 );
+
+/** Explicit opt-in: the archive must not carry the proxy key by default. */
+const includeSecrets = ref(false);
 
 onMounted(() => {
   // Cached check: the Telegram page and this page share the same 12h cache, so
@@ -215,7 +227,7 @@ onMounted(() => {
             v-for="theme in themes"
             :key="theme.value"
             class="theme-option"
-            :class="{ active: (config?.theme || 'dark') === theme.value }"
+            :class="{ active: activeTheme === theme.value }"
             type="button"
             @click="setTheme(theme.value)"
           >
@@ -227,7 +239,7 @@ onMounted(() => {
 
       <Toggle
         label="Запуск при старте Windows"
-        hint="Тихо при входе в систему"
+        hint="Тихо при входе, без запроса подтверждения"
         :checked="config?.autostart"
         :disabled="busy"
         @change="toggleAutostart"
@@ -294,6 +306,37 @@ onMounted(() => {
       >
         Открыть папку flowseal-zapret
       </Button>
+    </section>
+
+    <section class="section">
+      <h3>Резервная копия</h3>
+      <p class="muted">
+        Один архив: настройки, списки, экспериментальные стратегии и история проверок. Пригодится
+        перед экспериментами и при переезде на другой компьютер.
+      </p>
+
+      <label class="check-line">
+        <input v-model="includeSecrets" type="checkbox" />
+        <span>Включить ключ прокси и ссылку подписки</span>
+      </label>
+      <p v-if="includeSecrets" class="hint">
+        В архиве будут ключ Telegram-прокси и ссылка на подписку VPN. Храните файл в надёжном месте
+        и не пересылайте его.
+      </p>
+
+      <div class="backup-actions">
+        <Button :disabled="backupBusy" @click="exportSettings(includeSecrets)">
+          {{ backupBusy ? "Подождите…" : "Экспорт настроек" }}
+        </Button>
+        <Button
+          variant="secondary"
+          :disabled="backupBusy || benchRunning"
+          title="Проверить архив и заменить текущие настройки"
+          @click="importSettings"
+        >
+          Импорт настроек
+        </Button>
+      </div>
     </section>
   </Panel>
 </template>

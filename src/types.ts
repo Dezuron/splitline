@@ -38,12 +38,37 @@ export interface ConfigView {
   xray: XrayConfigView;
 }
 
+/**
+ * How autostart ended up registered. `run-key` means the Task Scheduler task
+ * could not be created and Windows will ask for confirmation at logon.
+ */
+export interface AutostartStatus {
+  mode: "task" | "run-key" | "disabled";
+  warning: string | null;
+}
+
 export interface TgwsConfigView {
   autostart: boolean;
   host: string;
   port: number;
   secret: string;
   installed_version: string;
+  /**
+   * Engine the config points at: `python` (proven build) or `rs` (light beta).
+   * Optional because a build without the second engine does not report it.
+   */
+  engine?: string;
+  /**
+   * Cloudflare domains in the user's priority order. `undefined` means the
+   * backend does not report the list, and the page must not touch it.
+   */
+  cf_domains?: string[];
+  /** Cloudflare Worker domain for the TCP fallback; empty means not configured. */
+  cf_worker_domain?: string;
+  /** Rotate across the domain list instead of always starting from the first. */
+  cf_balance?: boolean;
+  /** Inbound FakeTLS domain; empty keeps the link in the plain `dd` form. */
+  fake_tls_domain?: string;
 }
 
 export type TgwsState = "stopped" | "starting" | "running" | "stopping" | "error" | "not_installed";
@@ -55,7 +80,38 @@ export interface TgwsStatus {
   installed_version: string;
   binary_present: boolean;
   port_conflict: boolean;
+  /**
+   * Total connections accepted since the proxy started. Diagnostics only: it
+   * never resets, so it cannot answer "is a client connected now".
+   */
   client_connections_total: number;
+  /** Clients connected right now, parsed from the proxy's `active=`. */
+  active_connections?: number | null;
+  /** Unix seconds of the last client event; null while the proxy has none. */
+  last_client_at?: number | null;
+  /** Unix seconds of the last forwarded line; idle clients leave it behind. */
+  last_traffic_at?: number | null;
+  /** 1-based number of the current automatic restart, 0 when not restarting. */
+  restart_attempt?: number;
+  /** Engine the config points at: `python` or `rs`. */
+  engine?: string;
+  /** Consecutive failed starts of the new engine; the old one ignores it. */
+  engine_start_failures?: number;
+  /** The new engine failed three times in a row: the page offers the old one. */
+  fallback_recommended?: boolean;
+  /** The new engine's binary is on disk, so switching needs no download. */
+  rust_binary_present?: boolean;
+}
+
+/** One run of the new engine's `--check-listener` self-check. */
+export interface TgwsListenerCheck {
+  /** Whether the probe actually ran. A running proxy makes it "not now". */
+  ran: boolean;
+  ok: boolean;
+  /** One sentence for the card. */
+  summary: string;
+  /** The probe's own last line, with the secret masked. */
+  detail: string | null;
 }
 
 export interface TgwsDiagnosis {
@@ -69,7 +125,11 @@ export interface TgwsDiagnosis {
   last_error_line: string | null;
   last_error: string | null;
   hint: string;
-  kind: "ok" | "binary" | "port" | "stopped" | "not_connected" | "blocked" | "unknown";
+  kind: "ok" | "binary" | "port" | "stopped" | "not_connected" | "blocked";
+  /** Engine the result belongs to: `python` or `rs`. */
+  engine?: string;
+  /** The new engine's own probe; absent for the old engine, which has none. */
+  listener?: TgwsListenerCheck | null;
 }
 
 export type XrayState = "stopped" | "starting" | "running" | "stopping" | "error" | "not_installed";
@@ -128,6 +188,48 @@ export interface XrayConfigView {
   auto_switch: boolean;
 }
 
+/** A file inside a settings archive, as the import dialog lists it. */
+export interface BackupFile {
+  path: string;
+  size: number;
+}
+
+/** Verified preview of an archive; nothing has been written yet. */
+export interface BackupPreview {
+  schema: number;
+  app: string;
+  app_version: string;
+  created_at: number;
+  created_label: string;
+  /** The archive carries the proxy key and the subscription URL. */
+  secrets: boolean;
+  files: BackupFile[];
+  has_config: boolean;
+  lists: number;
+  generated: number;
+  bench_runs: number;
+  has_subscription: boolean;
+  /** One line for the confirmation dialog. */
+  summary: string;
+  /** What the user must know before confirming. */
+  warnings: string[];
+}
+
+export interface BackupExportReport {
+  path: string;
+  files: string[];
+  secrets: boolean;
+  size: number;
+}
+
+export interface BackupImportReport {
+  applied: string[];
+  lists: number;
+  /** Safety copy of the state that was on disk before the import. */
+  backup_path: string;
+  warnings: string[];
+}
+
 /** A long download the UI should show progress for. */
 export interface DownloadProgress {
   id: string;
@@ -157,6 +259,12 @@ export interface XrayBasesSummary {
 export interface TgwsNotice {
   ok: boolean;
   message: string;
+}
+
+/** What the tray wants to tell the user; `visible` says whether the window was open. */
+export interface TrayNotice {
+  message: string;
+  visible: boolean;
 }
 
 export interface TgwsUpdateInfo {
