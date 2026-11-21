@@ -1,4 +1,5 @@
 mod autostart;
+mod backup;
 mod bench;
 mod commands;
 mod config;
@@ -11,10 +12,12 @@ mod probe;
 mod progress;
 mod registry;
 mod runtime;
+mod signing;
 mod strategy;
 mod subscription;
 mod sys;
 mod tgws;
+mod tray;
 mod updater;
 mod whats_new;
 mod xray;
@@ -29,7 +32,7 @@ use config::AppConfig;
 pub use error::{AppError, AppResult};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use windows_sys::Win32::System::Registry::HKEY;
 
 /// Locks a mutex even if another thread panicked while holding it. A poisoned
@@ -502,12 +505,16 @@ fn ensure_on_screen(window: &tauri::WebviewWindow) {
 }
 
 /// Shows the main window and makes sure it is not parked outside every monitor.
-fn show_main_window(app: &tauri::AppHandle) {
+pub(crate) fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         ensure_on_screen(&window);
+        let _ = window.unminimize();
         let _ = window.show();
         apply_titlebar_theme(&window, config::theme_is_dark(&config::load_config().theme));
         let _ = window.set_focus();
+        // The frontend flushes the notices the tray produced while the window
+        // was hidden; they would otherwise expire unseen.
+        let _ = app.emit("app-shown", ());
     }
 }
 
@@ -522,7 +529,7 @@ pub fn run() {
     ensure_supported_os();
     ensure_webview2();
     ensure_elevated();
-    let is_autostart = std::env::args().any(|a| a == "--autostart");
+    let is_autostart = std::env::args().any(|arg| arg == crate::autostart::AUTOSTART_FLAG);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -530,139 +537,25 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::new())
-        .invoke_handler(tauri::generate_handler![
-            commands::get_state,
-            commands::set_strategy,
-            commands::start,
-            commands::stop,
-            commands::get_config,
-            commands::get_whats_new,
-            commands::dismiss_whats_new,
-            commands::set_game_filter,
-            commands::set_autostart,
-            commands::set_check_updates,
-            commands::set_check_app_updates,
-            commands::set_theme,
-            commands::set_runtime_path,
-            commands::set_flashscore_bypass,
-            commands::set_bench_auto_apply,
-            commands::check_update,
-            commands::check_app_update,
-            commands::apply_update,
-            commands::apply_app_update,
-            commands::open_external,
-            commands::open_runtime_folder,
-            commands::run_bench,
-            commands::run_search,
-            commands::cancel_bench,
-            commands::quick_check,
-            commands::apply_candidate,
-            commands::delete_generated,
-            commands::delete_all_generated,
-            commands::get_last_bench,
-            commands::get_bench_history,
-            commands::get_tgws_status,
-            commands::start_tgws,
-            commands::stop_tgws,
-            commands::restart_tgws,
-            commands::get_tgws_link,
-            commands::regenerate_tgws_secret,
-            commands::get_tgws_logs,
-            commands::diagnose_tgws,
-            commands::check_tgws_update,
-            commands::install_tgws_update,
-            commands::dismiss_tgws_update,
-            commands::set_tgws_autostart,
-            commands::set_tgws_host,
-            commands::set_tgws_port,
-            commands::set_tgws_secret,
-            commands::get_xray_status,
-            commands::get_xray_traffic,
-            commands::ping_xray_profile,
-            commands::get_xray_tunnel_probe,
-            commands::set_xray_auto_switch,
-            commands::restore_previous_subscription,
-            commands::get_xray_profiles,
-            commands::refresh_xray_subscription,
-            commands::set_xray_subscription,
-            commands::select_xray_profile,
-            commands::set_xray_ports,
-            commands::set_xray_autostart,
-            commands::install_xray_core,
-            commands::install_xray_core_from_file,
-            commands::start_xray,
-            commands::stop_xray,
-            commands::restart_xray,
-            commands::get_xray_logs,
-            commands::open_xray_in_telegram,
-            commands::get_xray_telegram_link,
-            commands::set_xray_proxy_sites,
-            commands::get_xray_site_bundles,
-            commands::discover_xray_sites,
-            commands::update_xray_site_bases,
-            commands::import_xray_sites,
-            commands::export_xray_sites,
-            commands::set_xray_system_proxy,
-            commands::use_tgws_fallback_port,
-            commands::open_tgws_log,
-            commands::open_telegram_link,
-            commands::copy_to_clipboard,
-        ])
+        .invoke_handler(commands::invoke_handler())
         .setup(move |app| {
-            // Tray
-            let show_i =
-                tauri::menu::MenuItem::with_id(app, "show", "Показать", true, None::<&str>)?;
-            let start_i =
-                tauri::menu::MenuItem::with_id(app, "start", "Запустить", true, None::<&str>)?;
-            let stop_i =
-                tauri::menu::MenuItem::with_id(app, "stop", "Остановить", true, None::<&str>)?;
-            let quit_i = tauri::menu::MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
-            let menu = tauri::menu::Menu::with_items(app, &[&show_i, &start_i, &stop_i, &quit_i])?;
-
-            let _tray = tauri::tray::TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("Splitline")
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id().as_ref() {
-                    "show" => {
-                        show_main_window(app);
-                    }
-                    "start" => {
-                        let state = app.state::<AppState>();
-                        let _ = crate::commands::start(state);
-                    }
-                    "stop" => {
-                        let state = app.state::<AppState>();
-                        let _ = crate::commands::stop(state);
-                    }
-                    "quit" => {
-                        app.exit(0);
-                    }
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let tauri::tray::TrayIconEvent::Click {
-                        button: tauri::tray::MouseButton::Left,
-                        button_state: tauri::tray::MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        show_main_window(app);
-                    }
-                })
-                .build(app)?;
+            // Tray: tooltip with the live state, menu with the three services.
+            tray::setup(app.handle())?;
 
             // Hide window on close (minimize to tray) instead of exiting
             if let Some(w) = app.get_webview_window("main") {
                 let dark = config::theme_is_dark(&config::load_config().theme);
                 apply_titlebar_theme(&w, dark);
                 let window = w.clone();
+                let handle = app.handle().clone();
                 w.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
                         let _ = window.hide();
+                        // The frontend decides whether this is the first close
+                        // and shows the "still in the tray" hint on the next
+                        // open — a toast behind a hidden window is never seen.
+                        let _ = handle.emit("app-hidden", ());
                     }
                 });
             }
@@ -766,21 +659,23 @@ pub fn run() {
                 show_main_window(app.handle());
             }
 
-            // Self-heal the autostart Run key: if the user enabled autostart but the
-            // value is missing or points to a different exe path, recreate it.
+            // Self-heal autostart: if the user enabled it but the task is
+            // missing or points to a different exe (the app is portable), the
+            // task is recreated; an already correct task is left untouched.
+            // `schtasks` is a child process, so this stays off the UI thread.
             {
                 let cfg = app.state::<AppState>();
                 let autostart_enabled = lock_config(&cfg).autostart;
                 if autostart_enabled {
-                    if let Ok(exe) = std::env::current_exe() {
-                        let exe_str = exe.to_string_lossy().to_string();
-                        let task_points_elsewhere = crate::autostart::registered_exe()
-                            .map(|p| !p.eq_ignore_ascii_case(&exe_str))
-                            .unwrap_or(true);
-                        if !crate::autostart::is_installed() || task_points_elsewhere {
-                            let _ = crate::autostart::install(&exe_str);
+                    std::thread::spawn(move || {
+                        if let Ok(exe) = std::env::current_exe() {
+                            if let Err(error) = crate::autostart::repair_if_needed(&exe) {
+                                // Best effort: the UI toggle reports failures
+                                // to the user, a background repair only logs.
+                                eprintln!("autostart: не удалось починить автозапуск: {error}");
+                            }
                         }
-                    }
+                    });
                 }
             }
 

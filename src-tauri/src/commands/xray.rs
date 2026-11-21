@@ -6,6 +6,8 @@
 use crate::xray::{self, XrayProfile, XrayStatus};
 use crate::AppResult;
 
+use super::{command_set, CommandSet};
+
 #[tauri::command]
 pub fn get_xray_status(app: tauri::AppHandle) -> AppResult<XrayStatus> {
     Ok(xray::status(&app))
@@ -251,4 +253,37 @@ pub async fn set_xray_system_proxy(app: tauri::AppHandle, enabled: bool) -> AppR
         .await
         .map_err(|e| e.to_string())??;
     Ok(())
+}
+
+/// VPN page: subscription, core, routing and system proxy.
+pub fn xray_commands() -> CommandSet {
+    command_set![
+        get_xray_status,
+        get_xray_traffic,
+        ping_xray_profile,
+        get_xray_tunnel_probe,
+        set_xray_auto_switch,
+        restore_previous_subscription,
+        get_xray_profiles,
+        refresh_xray_subscription,
+        set_xray_subscription,
+        select_xray_profile,
+        set_xray_ports,
+        set_xray_autostart,
+        install_xray_core,
+        install_xray_core_from_file,
+        start_xray,
+        stop_xray,
+        restart_xray,
+        get_xray_logs,
+        open_xray_in_telegram,
+        get_xray_telegram_link,
+        set_xray_proxy_sites,
+        get_xray_site_bundles,
+        update_xray_site_bases,
+        discover_xray_sites,
+        import_xray_sites,
+        export_xray_sites,
+        set_xray_system_proxy,
+    ]
 }

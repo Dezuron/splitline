@@ -1,6 +1,6 @@
 [package]
 name = "zapret-ui"
-version = "2.1.0"
+version = "2.2.0"
 description = "Windows 10/11 GUI manager for flowseal-zapret (zapret-discord-youtube by Flowseal)"
 authors = ["Dezuron"]
 license = "MIT"
@@ -25,6 +25,8 @@ thiserror = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "blocking"] }
 zip = { version = "9", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
+base64 = "0.22"
+minisign-verify = "0.3"
 getrandom = "0.2"
 dirs = "5"
 windows-sys = { version = "0.59", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Registry", "Win32_Foundation", "Win32_Graphics_Dwm", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Services", "Win32_System_JobObjects", "Win32_System_Diagnostics_ToolHelp", "Win32_Security"] }
@@ -33,3 +35,9 @@ windows-sys = { version = "0.59", features = ["Win32_UI_Shell", "Win32_UI_Window
 lto = true
 codegen-units = 1
 strip = true
+
+[dev-dependencies]
+# Real minisign key generation and signing for the signature tests. Verification
+# itself uses `minisign-verify`; this crate only builds test fixtures, so it
+# never lands in the shipped binary.
+minisign = "0.10"

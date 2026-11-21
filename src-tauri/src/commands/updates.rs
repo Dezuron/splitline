@@ -218,4 +218,17 @@ pub fn open_runtime_folder() -> AppResult<()> {
     Ok(crate::sys::open_path(&dir)?)
 }
 
+/// Application and bypass-runtime updates.
+pub fn updates_commands() -> CommandSet {
+    command_set![
+        set_check_app_updates,
+        check_app_update,
+        apply_app_update,
+        open_external,
+        check_update,
+        apply_update,
+        open_runtime_folder,
+    ]
+}
+
 // ---------- strategy checks ----------

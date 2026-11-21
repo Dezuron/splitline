@@ -27,11 +27,87 @@ mod tgws;
 mod updates;
 mod xray;
 pub use benchmark::*;
-pub use settings::*;
 pub use strategies::*;
 pub use tgws::*;
-pub use updates::*;
 pub use xray::*;
+
+/// Commands of one module: the names the IPC router matches and the
+/// `generate_handler!` dispatcher that serves them.
+///
+/// Tauri stores a single handler per builder and every later `invoke_handler`
+/// call replaces the earlier one, so a module cannot mount itself on the
+/// builder. Instead each module owns its list (see `<module>::…_commands`) and
+/// [`invoke_handler`] routes a call to the module that serves it.
+pub struct CommandSet {
+    names: &'static [&'static str],
+    handler: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync>,
+}
+
+impl CommandSet {
+    pub fn new(
+        names: &'static [&'static str],
+        handler: impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            names,
+            handler: Box::new(handler),
+        }
+    }
+
+    fn serves(&self, command: &str) -> bool {
+        self.names.contains(&command)
+    }
+}
+
+/// Builds a [`CommandSet`] from a module's command list.
+///
+/// The name comes from `stringify!`, which is what `#[tauri::command]` uses
+/// too, so one list defines both the handler and the names it answers and they
+/// cannot drift apart.
+macro_rules! command_set {
+    ($($command:ident),* $(,)?) => {
+        $crate::commands::CommandSet::new(
+            &[$(stringify!($command)),*],
+            ::tauri::generate_handler![$($command),*],
+        )
+    };
+}
+pub(crate) use command_set;
+
+/// Commands declared in this file, next to their helpers.
+fn core_commands() -> CommandSet {
+    command_set![get_state, get_config, get_whats_new, dismiss_whats_new,]
+}
+
+/// Every module's command set. A new command is added in the module that owns
+/// it; only a new module needs a line here.
+fn all_commands() -> [CommandSet; 8] {
+    [
+        benchmark::benchmark_commands(),
+        core_commands(),
+        settings::settings_commands(),
+        strategies::strategies_commands(),
+        tgws::tgws_commands(),
+        crate::tray::tray_commands(),
+        updates::updates_commands(),
+        xray::xray_commands(),
+    ]
+}
+
+/// The single IPC entry point of the application. An unknown command returns
+/// `false`, exactly as `generate_handler!` does on its own.
+pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
+    let commands = all_commands();
+    move |invoke| {
+        let name = invoke.message.command();
+        for set in &commands {
+            if set.serves(name) {
+                return (set.handler)(invoke);
+            }
+        }
+        false
+    }
+}
 
 /// Timeout for one host/protocol probe. Four seconds per protocol is enough for a
 /// healthy handshake and keeps a fully broken candidate from eating minutes.
@@ -72,6 +148,11 @@ pub struct TgwsConfigView {
     pub port: u16,
     pub secret: String,
     pub installed_version: String,
+    pub engine: String,
+    pub cf_domains: Vec<String>,
+    pub cf_worker_domain: String,
+    pub cf_balance: bool,
+    pub fake_tls_domain: String,
 }
 
 #[derive(Serialize)]
@@ -229,6 +310,11 @@ pub fn get_config(state: State<'_, AppState>) -> AppResult<ConfigView> {
             port: cfg.tgws.port,
             secret: cfg.tgws.secret.clone(),
             installed_version: crate::tgws::upstream_version(&cfg.tgws.installed_version),
+            engine: cfg.tgws.engine.clone(),
+            cf_domains: cfg.tgws.cf_domains.clone(),
+            cf_worker_domain: cfg.tgws.cf_worker_domain.clone(),
+            cf_balance: cfg.tgws.cf_balance,
+            fake_tls_domain: cfg.tgws.fake_tls_domain.clone(),
         },
         xray: XrayConfigView {
             subscription_url: cfg.xray.subscription_url.clone(),

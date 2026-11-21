@@ -82,6 +82,21 @@ pub struct TgwsConfig {
     /// The `tg://` link was opened automatically once after the first start;
     /// prevents nagging the user on every launch.
     pub link_opened: bool,
+    /// Proxy engine: `python` (the proven headless Flowseal build) or `rs`
+    /// (`valnesfjord/tg-ws-proxy-rs`). Kept as a string so a config written by
+    /// a newer version still loads here; unknown values mean the default.
+    pub engine: String,
+    /// Cloudflare proxy domains, tried in the order given (`--cf-domain`).
+    pub cf_domains: Vec<String>,
+    /// Cloudflare Worker domain for the TCP-tunnel fallback
+    /// (`--cf-worker-domain`). Empty means "not configured".
+    pub cf_worker_domain: String,
+    /// Rotate across `cf_domains` instead of always starting from the first
+    /// one (`--cf-balance`). Has no effect with a single domain.
+    pub cf_balance: bool,
+    /// Version of the installed Rust engine binary, empty when it was placed
+    /// by hand. Only used to remember what sits on disk.
+    pub rs_version: String,
 }
 
 impl Default for TgwsConfig {
@@ -105,6 +120,13 @@ impl Default for TgwsConfig {
             dismissed_update_tag: String::new(),
             secret_migrated: false,
             link_opened: false,
+            // The new engine is opt-in for 2.2.0 (R1): the old one stays the
+            // default until the new one proves itself.
+            engine: "python".into(),
+            cf_domains: Vec::new(),
+            cf_worker_domain: String::new(),
+            cf_balance: false,
+            rs_version: String::new(),
         }
     }
 }
@@ -258,6 +280,12 @@ pub fn tgws_binary_path() -> PathBuf {
     tgws_dir().join("tgws-cli.exe")
 }
 
+/// Binary of the Rust engine. It sits next to the old one so a switch never
+/// depends on a download and going back is always one click away (R11).
+pub fn tgws_rs_binary_path() -> PathBuf {
+    tgws_dir().join("tgws-rs.exe")
+}
+
 pub fn tgws_log_path() -> PathBuf {
     tgws_dir().join("tgws.log")
 }
@@ -299,7 +327,10 @@ pub fn prepare_runtime_dir(path: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_config(text: &str) -> Option<AppConfig> {
+/// Parses a config written by any build. Used both for `config.json` on disk and
+/// for an imported archive, so an import cannot bring in a theme the UI would not
+/// understand.
+pub(crate) fn parse_config(text: &str) -> Option<AppConfig> {
     // A UTF-8 BOM is valid for many editors but serde_json rejects it. Without
     // stripping it, a hand-edited config silently resets every setting.
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
@@ -327,10 +358,15 @@ pub fn load_config() -> AppConfig {
 }
 
 pub fn save_config(cfg: &AppConfig) -> Result<(), String> {
-    let dir = app_dir();
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    save_config_at(&app_dir(), cfg)
+}
+
+/// Same write-then-rename contract, but into an explicit folder. The import
+/// writes the merged config there, and tests point it at a temporary directory.
+pub fn save_config_at(dir: &std::path::Path, cfg: &AppConfig) -> Result<(), String> {
+    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let json = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
-    let path = config_path();
+    let path = dir.join(CONFIG_FILE);
     // Write-then-rename: a crash or a concurrent read can never observe a
     // half-written config (which used to silently reset every setting).
     let tmp = path.with_extension("json.tmp");
@@ -442,5 +478,30 @@ mod tests {
     #[test]
     fn clean_install_has_no_whats_new_marker() {
         assert!(AppConfig::default().last_run_version.is_empty());
+    }
+
+    #[test]
+    fn config_without_engine_fields_migrates_to_python() {
+        let mut value = serde_json::to_value(AppConfig::default()).expect("json");
+        // A config written before 2.2.0 has none of the new keys; loading it
+        // must not fail and must pick the old engine.
+        let tgws = value["tgws"].as_object_mut().expect("tgws object");
+        for key in [
+            "engine",
+            "cf_domains",
+            "cf_worker_domain",
+            "cf_balance",
+            "rs_version",
+        ] {
+            tgws.remove(key);
+        }
+        let parsed = parse_config(&value.to_string()).expect("parse");
+        assert_eq!(parsed.tgws.engine, "python");
+        assert!(parsed.tgws.cf_domains.is_empty());
+        assert_eq!(parsed.tgws.cf_worker_domain, "");
+        assert!(!parsed.tgws.cf_balance);
+        // Fields that already existed keep their values.
+        assert_eq!(parsed.tgws.port, 1555);
+        assert_eq!(parsed.tgws.pool_size, 4);
     }
 }
