@@ -33,6 +33,7 @@ import {
   TGWS_POOL_MAX,
   TGWS_POOL_MIN,
   tgwsEndpoint,
+  telegramProxyPrompt,
   tgwsEngineLabel,
   tgwsLimitsError,
   tgwsTone,
@@ -389,15 +390,16 @@ async function commitFakeTls() {
   }
 }
 
-/** Telegram keeps one proxy at a time: an active VPN tunnel wins over MTProto. */
-const telegramOnVpn = computed(
-  () =>
-    xrayStatus.value?.state === "running" &&
-    (xrayStatus.value?.client_connections ?? 0) > 0 &&
-    tgwsActivity.value === "idle",
+/** Telegram keeps one proxy at a time; the hint only claims what we can prove. */
+const telegramPrompt = computed(() =>
+  telegramProxyPrompt({
+    proxyRunning: tgwsRunning.value,
+    proxyActive: tgwsActivity.value === "active",
+    proxyConnectionsTotal: tgwsStatus.value?.client_connections_total ?? 0,
+    vpnRunning: xrayStatus.value?.state === "running",
+    vpnConnections: xrayStatus.value?.client_connections ?? 0,
+  }),
 );
-/** The proxy is on, but Telegram has not connected to it yet. */
-const telegramNeedsProxy = computed(() => tgwsRunning.value && tgwsActivity.value === "idle");
 
 /** Starts the proxy if needed and hands Telegram the `tg://` link. */
 async function switchTelegramToProxy() {
@@ -615,7 +617,7 @@ async function commitSecret() {
           </Button>
         </div>
 
-        <div v-if="telegramOnVpn" class="tgws-prompt">
+        <div v-if="telegramPrompt === 'vpn'" class="tgws-prompt">
           <div class="tgws-prompt-icon"><Send :size="18" /></div>
           <div class="tgws-prompt-text">
             <strong>Telegram сидит на VPN, а не на MTProto-прокси</strong>
@@ -629,7 +631,7 @@ async function commitSecret() {
           </Button>
         </div>
 
-        <div v-else-if="telegramNeedsProxy" class="tgws-prompt">
+        <div v-else-if="telegramPrompt === 'needs-proxy'" class="tgws-prompt">
           <div class="tgws-prompt-icon"><Send :size="18" /></div>
           <div class="tgws-prompt-text">
             <strong>Telegram ещё не использует прокси</strong>

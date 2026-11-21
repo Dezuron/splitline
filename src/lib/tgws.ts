@@ -94,6 +94,33 @@ export const TGWS_ENGINES: { value: TgwsEngine; label: string; note: string }[] 
   },
 ];
 
+/** Which Telegram hint the page should show, if any. */
+export type TelegramProxyPrompt = "vpn" | "needs-proxy" | null;
+
+export interface TelegramPromptInput {
+  proxyRunning: boolean;
+  /** `tgwsActivity === "active"`: a client is connected right now. */
+  proxyActive: boolean;
+  /** Connections accepted since the proxy started; 0 means "never". */
+  proxyConnectionsTotal: number;
+  vpnRunning: boolean;
+  vpnConnections: number;
+}
+
+/**
+ * What to ask the user about Telegram. "Telegram sits on VPN" needs evidence:
+ * the proxy saw a client before, that client is gone now, and the VPN is
+ * carrying traffic. A proxy that never saw a client gets the neutral
+ * "not using the proxy yet" hint instead — unrelated VPN connections must not
+ * turn into a claim about Telegram.
+ */
+export function telegramProxyPrompt(input: TelegramPromptInput): TelegramProxyPrompt {
+  if (!input.proxyRunning) return null;
+  if (input.proxyConnectionsTotal === 0) return "needs-proxy";
+  if (input.proxyActive) return null;
+  return input.vpnRunning && input.vpnConnections > 0 ? "vpn" : null;
+}
+
 /** Anything unrecognised is the engine the app would actually run. */
 export function normalizeTgwsEngine(value: string | undefined | null): TgwsEngine {
   const name = (value ?? "").trim().toLowerCase();

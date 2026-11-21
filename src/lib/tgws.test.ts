@@ -8,6 +8,7 @@ import {
   normalizeTgwsEngine,
   TGWS_BUF_MAX_KB,
   TGWS_BUF_MIN_KB,
+  telegramProxyPrompt,
   TGWS_ENGINES,
   TGWS_POOL_MAX,
   TGWS_POOL_MIN,
@@ -104,6 +105,36 @@ describe("tgwsEngineLabel", () => {
     expect(tgwsEngineLabel("rs")).toBe("Новый (beta)");
     expect(tgwsEngineLabel("python")).toBe("Старый");
     expect(tgwsEngineLabel(undefined)).toBe("Старый");
+  });
+});
+
+describe("telegramProxyPrompt", () => {
+  const busyVpn = {
+    proxyRunning: true,
+    proxyActive: false,
+    proxyConnectionsTotal: 3,
+    vpnRunning: true,
+    vpnConnections: 2,
+  };
+
+  it("stays silent while the proxy is off", () => {
+    expect(telegramProxyPrompt({ ...busyVpn, proxyRunning: false })).toBeNull();
+  });
+
+  it("asks to connect when the proxy never saw a client", () => {
+    // The regression: unrelated VPN connections used to produce
+    // "Telegram sits on VPN" right after the proxy was switched on.
+    expect(telegramProxyPrompt({ ...busyVpn, proxyConnectionsTotal: 0 })).toBe("needs-proxy");
+  });
+
+  it("claims VPN only after a client left and the VPN carries traffic", () => {
+    expect(telegramProxyPrompt(busyVpn)).toBe("vpn");
+    expect(telegramProxyPrompt({ ...busyVpn, vpnConnections: 0 })).toBeNull();
+    expect(telegramProxyPrompt({ ...busyVpn, vpnRunning: false })).toBeNull();
+  });
+
+  it("stays silent while Telegram is connected to the proxy", () => {
+    expect(telegramProxyPrompt({ ...busyVpn, proxyActive: true })).toBeNull();
   });
 });
 
