@@ -286,6 +286,16 @@ async function toggleExpertFlag(patch: Partial<TgwsFlags>) {
   expertFlagsError.value = await applyFlags(patch);
 }
 
+/**
+ * One click from the "Telegram is not connected yet" hint: the network may
+ * block TLS to Cloudflare, while plain ws:// passes. The flag stays off by
+ * default; the user opts in when the normal connection does not work.
+ */
+async function enableNoTls() {
+  if (tgwsBusy.value || noSecure.value || !flagsKnown.value) return;
+  cfFlagsError.value = await applyFlags({ no_secure: true });
+}
+
 /** Saves the DC redirect list; the engine restarts when it was running. */
 async function saveDcIps(next: string[]): Promise<boolean> {
   if (tgwsBusy.value) return false;
@@ -637,12 +647,24 @@ async function commitSecret() {
             <strong>Telegram ещё не использует прокси</strong>
             <span>
               В Telegram выберите «Использовать собственный прокси» и добавьте ссылку — проще всего
-              кнопкой ниже: ключ и порт уже верные, менять ничего не нужно.
+              кнопкой «Подключить Telegram»: ключ и порт уже верные, менять ничего не нужно.
             </span>
           </div>
-          <Button size="sm" :disabled="!tgwsLink" @click="openTgwsInTelegram">
-            Подключить Telegram
-          </Button>
+          <div class="tgws-prompt-actions">
+            <Button size="sm" :disabled="!tgwsLink" @click="openTgwsInTelegram">
+              Подключить Telegram
+            </Button>
+            <Button
+              v-if="!noSecure && flagsKnown"
+              variant="outline"
+              size="sm"
+              :disabled="tgwsBusy || transitioning"
+              title="Переход до Cloudflare без TLS; трафик Telegram остаётся зашифрованным"
+              @click="enableNoTls"
+            >
+              Попробовать без TLS
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -934,6 +956,29 @@ async function commitSecret() {
                 </span>
               </span>
             </div>
+
+            <div class="tgws-balance">
+              <Switch
+                :model-value="noSecure"
+                :disabled="!flagsKnown || tgwsBusy"
+                aria-label="Работать с Cloudflare без TLS"
+                @update:model-value="toggleCfFlag({ no_secure: $event })"
+              />
+              <span>
+                <strong>Cloudflare без TLS</strong>
+                <span class="muted">
+                  Переход до Cloudflare идёт по ws:// без TLS; трафик Telegram внутри остаётся
+                  зашифрованным. Включайте, если с TLS Telegram не подключается.
+                </span>
+              </span>
+            </div>
+            <p v-if="noSecure" class="tgws-warning">
+              <AlertTriangle :size="14" />
+              <span>
+                Трафик до Cloudflare не шифруется: провайдер видит домен и WebSocket. Выключите,
+                если прокси работает и с TLS.
+              </span>
+            </p>
 
             <p v-if="!flagsKnown" class="tgws-hint">
               Не удалось прочитать настройки Cloudflare — обновите приложение.
@@ -1249,26 +1294,6 @@ async function commitSecret() {
 
               <div class="tgws-balance">
                 <Switch
-                  :model-value="noSecure"
-                  :disabled="tgwsBusy"
-                  aria-label="Работать без TLS"
-                  @update:model-value="toggleExpertFlag({ no_secure: $event })"
-                />
-                <span>
-                  <strong>Без TLS</strong>
-                  <span class="muted">
-                    Соединение с Cloudflare без шифрования. У нового движка отключает TLS.
-                    Включайте, только если обычное подключение не проходит.
-                  </span>
-                </span>
-              </div>
-              <p v-if="noSecure" class="tgws-warning">
-                <AlertTriangle :size="14" />
-                <span>Трафик до Cloudflare не шифруется — выключите, когда прокси заработает.</span>
-              </p>
-
-              <div class="tgws-balance">
-                <Switch
                   :model-value="forceTestDc"
                   :disabled="tgwsBusy"
                   aria-label="Направить весь трафик на тестовые DC"
@@ -1441,6 +1466,30 @@ async function commitSecret() {
   color: var(--text-2);
   font-size: 12.5px;
   line-height: 1.45;
+}
+
+/* Two ways out of "not connected": link Telegram or try the plaintext
+   Cloudflare transport. They stack on narrow windows. */
+.tgws-prompt-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* At the window's minimum the two buttons would leave a ten-character column
+   for the text: give them their own row under it instead. */
+@media (max-width: 1000px) {
+  .tgws-prompt {
+    flex-wrap: wrap;
+  }
+
+  .tgws-prompt-actions {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+    padding-left: 46px;
+  }
 }
 
 .tgws-hero-head {
