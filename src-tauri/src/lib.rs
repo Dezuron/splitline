@@ -84,6 +84,13 @@ impl Default for AppState {
     }
 }
 
+/// How this process was started. Autostart must stay in the tray; every other
+/// launch stays hidden until the frontend asks for the window (`frontend_ready`)
+/// after applying the configured theme.
+pub struct LaunchMode {
+    pub autostart: bool,
+}
+
 #[allow(dead_code)]
 fn is_admin() -> bool {
     unsafe { windows_sys::Win32::UI::Shell::IsUserAnAdmin() != 0 }
@@ -537,6 +544,9 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::new())
+        .manage(LaunchMode {
+            autostart: is_autostart,
+        })
         .invoke_handler(commands::invoke_handler())
         .setup(move |app| {
             // Tray: tooltip with the live state, menu with the three services.
@@ -649,14 +659,27 @@ pub fn run() {
                 }
             }
 
-            // On autostart, start hidden
+            // On autostart, start hidden. A normal launch also stays hidden:
+            // `frontend_ready` shows the window after the configured theme has
+            // been applied, so no frame of the default theme is ever painted.
+            // The watchdog is a safety net for a frontend that fails to boot —
+            // otherwise the app would live in the tray without any window.
             if is_autostart {
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.hide();
                 }
             } else {
-                // Normal launch: show the window on a visible monitor.
-                show_main_window(app.handle());
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    let visible = handle
+                        .get_webview_window("main")
+                        .and_then(|window| window.is_visible().ok())
+                        .unwrap_or(false);
+                    if !visible {
+                        show_main_window(&handle);
+                    }
+                });
             }
 
             // Self-heal autostart: if the user enabled it but the task is

@@ -76,7 +76,13 @@ pub(crate) use command_set;
 
 /// Commands declared in this file, next to their helpers.
 fn core_commands() -> CommandSet {
-    command_set![get_state, get_config, get_whats_new, dismiss_whats_new,]
+    command_set![
+        get_state,
+        get_config,
+        frontend_ready,
+        get_whats_new,
+        dismiss_whats_new,
+    ]
 }
 
 /// Every module's command set. A new command is added in the module that owns
@@ -334,6 +340,19 @@ pub fn get_config(state: State<'_, AppState>) -> AppResult<ConfigView> {
             auto_switch: cfg.xray.auto_switch,
         },
     })
+}
+
+/// The frontend has applied the configured theme and is ready to be shown.
+/// The window is shown only now: showing it earlier flashes the default theme.
+#[tauri::command]
+pub fn frontend_ready(
+    app: tauri::AppHandle,
+    launch: State<'_, crate::LaunchMode>,
+) -> AppResult<()> {
+    if !launch.autostart {
+        crate::show_main_window(&app);
+    }
+    Ok(())
 }
 
 #[tauri::command]

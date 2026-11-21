@@ -108,6 +108,7 @@ let refreshSeq = 0;
 let unlisteners: Array<() => void> = [];
 let initialized = false;
 let budgetInitialized = false;
+let windowShown = false;
 
 export const THEMES = ["satellite", "carmine"] as const;
 export type ThemeId = (typeof THEMES)[number];
@@ -161,6 +162,17 @@ export function applyTheme(theme: string | undefined) {
   }
 }
 
+/**
+ * Shows the window once the configured theme has been painted. The Rust side
+ * keeps the window hidden until this call, so no frame of the default theme is
+ * visible; `Promise.resolve` keeps mocked `invoke` (tests) from throwing.
+ */
+function revealWindow() {
+  if (windowShown) return;
+  windowShown = true;
+  void Promise.resolve(invoke("frontend_ready")).catch(() => undefined);
+}
+
 async function refreshInternal(quiet: boolean) {
   // Allow overlapping calls (a polling tick may coincide with an action) but
   // only let the latest one write state, so responses cannot land out of order.
@@ -173,6 +185,17 @@ async function refreshInternal(quiet: boolean) {
     status.value = nextStatus;
     config.value = nextConfig;
     applyTheme(nextConfig.theme);
+    if (!windowShown) {
+      // Two frames make sure the new theme has been painted before the window
+      // appears; the timer covers a renderer that throttles animation frames
+      // while the window is hidden.
+      const raf =
+        typeof window.requestAnimationFrame === "function"
+          ? window.requestAnimationFrame.bind(window)
+          : (callback: () => void) => window.setTimeout(callback, 16);
+      raf(() => raf(revealWindow));
+      window.setTimeout(revealWindow, 250);
+    }
     if (!budgetInitialized && config.value) {
       budget.value = config.value.bench_budget;
       budgetInitialized = true;
