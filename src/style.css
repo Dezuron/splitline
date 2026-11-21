@@ -1830,7 +1830,8 @@ input[type="range"] {
 .power-card,
 .home-hero,
 .home-row,
-.traffic-card {
+.traffic-card,
+.versions-card {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -2047,40 +2048,45 @@ input[type="range"] {
   font-weight: 600;
 }
 
-/* The last row of the hero: versions on the left, the refresh action in the
-   bottom-right corner. The button is absolute, so it never makes the row
-   taller and the card keeps its two-line height. */
-.home-hero-bottom {
-  position: relative;
-  display: flex;
-  flex: 1 1 100%;
+/* The versions strip sits at the very bottom of the page: what is installed,
+   where an update exists, and the manual check. */
+.versions-card {
+  flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
-  order: 1;
-  padding-top: 10px;
-  border-top: 1px solid var(--glass-border);
+  gap: 10px 18px;
 }
 
-/* Installed versions: a quiet row that never competes with the status line. */
-.home-hero-versions {
+.versions-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+}
+
+.versions-head strong {
+  font-size: var(--fs-title);
+  font-weight: 600;
+}
+
+.versions-list {
   display: flex;
   flex: 1 1 auto;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 14px;
+  gap: 4px 16px;
   min-width: 0;
   margin: 0;
-  /* Keep the text clear of the absolutely positioned refresh button. */
-  padding: 0 48px 0 0;
+  padding: 0;
   list-style: none;
 }
 
-/* More specific than the shared `.ui-button` rule that sets `position: relative`
-   for the button's own focus ring. */
-.home-hero-bottom .home-hero-refresh {
-  position: absolute;
-  right: 0;
-  bottom: -8px;
+.versions-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .home-version {
@@ -2107,6 +2113,17 @@ input[type="range"] {
   border-radius: 50%;
   background: var(--warn);
   box-shadow: 0 0 0 2px var(--warn-soft);
+}
+
+@media (max-width: 1000px) {
+  .versions-head,
+  .versions-list {
+    flex: 1 1 100%;
+  }
+
+  .versions-actions {
+    margin-left: 0;
+  }
 }
 
 .power-head {

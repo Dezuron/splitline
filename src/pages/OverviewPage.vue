@@ -73,7 +73,7 @@ const updatesLabel = computed(() => {
   return count === 1 ? "Доступно 1 обновление" : `Доступно обновлений: ${count}`;
 });
 
-/** Any of the three checks running: the hero button spins and ignores clicks. */
+/** Any of the three checks running: the versions-card button spins and ignores clicks. */
 const checkingAllUpdates = computed(
   () => checkingAppUpdate.value || checkingUpdate.value || tgwsChecking.value,
 );
@@ -99,7 +99,7 @@ interface HeroVersion {
   update: boolean;
 }
 
-/** What is installed where: one row of versions for the hero. */
+/** What is installed where: one row of versions for the bottom card. */
 const versions = computed<HeroVersion[]>(() => [
   {
     key: "splitline",
@@ -200,35 +200,6 @@ function speedLabel(bytes: number): string {
         <div class="home-hero-text">
           <strong>{{ statusText }}</strong>
           <span class="muted">{{ heroHint }}</span>
-        </div>
-        <Button
-          v-if="updatesAvailable"
-          variant="secondary"
-          size="sm"
-          @click="router.push('/settings')"
-        >
-          {{ updatesLabel }}
-        </Button>
-        <div class="home-hero-bottom">
-          <ul class="home-hero-versions">
-            <li v-for="item in versions" :key="item.key" class="home-version">
-              <span v-if="item.update" class="home-version-dot" aria-hidden="true"></span>
-              <span class="home-version-label">{{ item.label }}</span>
-              <strong class="home-version-value">{{ item.version }}</strong>
-              <span v-if="item.update" class="sr-only">— доступно обновление</span>
-            </li>
-          </ul>
-          <Button
-            class="home-hero-refresh"
-            variant="outline"
-            size="icon"
-            title="Проверить обновления"
-            aria-label="Проверить обновления"
-            :disabled="checkingAllUpdates"
-            @click="refreshUpdates"
-          >
-            <RefreshCw :size="15" :class="{ spinning: checkingAllUpdates }" />
-          </Button>
         </div>
       </div>
     </Card>
@@ -417,5 +388,40 @@ function speedLabel(bytes: number): string {
         </CardContent>
       </Card>
     </div>
+
+    <Card class="versions-card">
+      <div class="versions-head">
+        <span class="eyebrow">Компоненты</span>
+        <strong>Версии</strong>
+      </div>
+      <ul class="versions-list">
+        <li v-for="item in versions" :key="item.key" class="home-version">
+          <span v-if="item.update" class="home-version-dot" aria-hidden="true"></span>
+          <span class="home-version-label">{{ item.label }}</span>
+          <strong class="home-version-value">{{ item.version }}</strong>
+          <span v-if="item.update" class="sr-only">— доступно обновление</span>
+        </li>
+      </ul>
+      <div class="versions-actions">
+        <Button
+          v-if="updatesAvailable"
+          variant="secondary"
+          size="sm"
+          @click="router.push('/settings')"
+        >
+          {{ updatesLabel }}
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          title="Проверить обновления"
+          aria-label="Проверить обновления"
+          :disabled="checkingAllUpdates"
+          @click="refreshUpdates"
+        >
+          <RefreshCw :size="15" :class="{ spinning: checkingAllUpdates }" />
+        </Button>
+      </div>
+    </Card>
   </div>
 </template>
