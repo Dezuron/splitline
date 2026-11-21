@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/Dezuron/splitline/releases"><strong>Скачать для Windows 10/11</strong></a><br />
-  <sub>портативный архив · 14,3 МиБ · x64 · без установки</sub>
+  <sub>портативный архив · 5,5 МиБ · x64 · без установки</sub>
 </p>
 
 <p align="center">
@@ -67,7 +67,7 @@ Splitline закрывает три разные задачи одним при�
 | --- | --- |
 | Что скачать | `Splitline_<версия>_x64_portable.zip` со [страницы релизов](https://github.com/Dezuron/splitline/releases) |
 | Что внутри | `Splitline.exe`, `README.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md` |
-| Размер | exe 14,3 МиБ, архив — примерно столько же |
+| Размер | exe 14,3 МиБ, архив — около 5,5 МиБ |
 | Куда распаковать | в любую папку: `C:\Tools\Splitline`, рабочий стол, флешку |
 | Обновление | приложение само скачивает новый exe с GitHub и проверяет SHA-256 |
 | Удаление | выключить обход, закрыть приложение, удалить папку и `%LOCALAPPDATA%\zapret-ui` |
