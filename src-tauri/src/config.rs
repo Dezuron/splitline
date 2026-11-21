@@ -71,6 +71,17 @@ pub struct TgwsConfig {
     pub cfproxy_user_domain: String,
     pub fake_tls_domain: String,
     pub verbose: bool,
+    /// Upstream `--no-secure`: Cloudflare connections without TLS. The Rust
+    /// engine has no exact counterpart; see `build_rs_args`.
+    #[serde(default)]
+    pub no_secure: bool,
+    /// Upstream `--force-test-dc`: use the Telegram test datacenters.
+    #[serde(default)]
+    pub force_test_dc: bool,
+    /// Upstream `--proxy-protocol`: expect the PROXY protocol header from the
+    /// client (for a proxy in front of the proxy).
+    #[serde(default)]
+    pub proxy_protocol: bool,
     /// Version tag of the installed headless binary (`1.11.2-1`), empty when
     /// the binary was placed manually.
     pub installed_version: String,
@@ -89,8 +100,14 @@ pub struct TgwsConfig {
     /// Cloudflare proxy domains, tried in the order given (`--cf-domain`).
     pub cf_domains: Vec<String>,
     /// Cloudflare Worker domain for the TCP-tunnel fallback
-    /// (`--cf-worker-domain`). Empty means "not configured".
+    /// (`--cf-worker-domain`). Kept for configs written by 2.2.0: the list
+    /// below is the source of truth, this value is migrated into it.
     pub cf_worker_domain: String,
+    /// Cloudflare Worker domains in priority order: the old engine takes
+    /// `--cfproxy-worker-domain`, the Rust one `--cf-worker-domain`.
+    /// Empty means "not configured".
+    #[serde(default)]
+    pub cf_worker_domains: Vec<String>,
     /// Rotate across `cf_domains` instead of always starting from the first
     /// one (`--cf-balance`). Has no effect with a single domain.
     pub cf_balance: bool,
@@ -116,6 +133,9 @@ impl Default for TgwsConfig {
             cfproxy_user_domain: String::new(),
             fake_tls_domain: String::new(),
             verbose: false,
+            no_secure: false,
+            force_test_dc: false,
+            proxy_protocol: false,
             installed_version: String::new(),
             dismissed_update_tag: String::new(),
             secret_migrated: false,
@@ -125,6 +145,7 @@ impl Default for TgwsConfig {
             engine: "python".into(),
             cf_domains: Vec::new(),
             cf_worker_domain: String::new(),
+            cf_worker_domains: Vec::new(),
             cf_balance: false,
             rs_version: String::new(),
         }
@@ -342,7 +363,36 @@ pub(crate) fn parse_config(text: &str) -> Option<AppConfig> {
         "light" | "stencil" => "carmine".into(),
         _ => "satellite".into(),
     };
+    migrate_tgws_domain_lists(&mut cfg.tgws);
     Some(cfg)
+}
+
+/// Carries the single-domain settings of 2.2.0 into the lists (R2).
+///
+/// The old fields stay in the file, so a build that does not know the lists
+/// still reads a working domain; but from now on the list is the source of
+/// truth and the legacy value is only a fallback for an empty list. Both
+/// directions of the migration run here, once per load, so a hand-edited
+/// `config.json` behaves like one written by the UI.
+fn migrate_tgws_domain_lists(tgws: &mut TgwsConfig) {
+    if domain_list_is_empty(&tgws.cf_worker_domains) {
+        let legacy = tgws.cf_worker_domain.trim();
+        if !legacy.is_empty() {
+            tgws.cf_worker_domains = vec![legacy.to_ascii_lowercase()];
+        }
+    }
+    if domain_list_is_empty(&tgws.cf_domains) {
+        let legacy = tgws.cfproxy_user_domain.trim();
+        if !legacy.is_empty() {
+            tgws.cf_domains = vec![legacy.to_ascii_lowercase()];
+        }
+    }
+}
+
+/// A list of blank strings counts as empty: that is what a cleared UI form
+/// saves, and it must not block the migration of the legacy value.
+fn domain_list_is_empty(values: &[String]) -> bool {
+    values.iter().all(|value| value.trim().is_empty())
 }
 
 /// Both remaining themes are dark, so the native title bar stays dark too.
@@ -503,5 +553,58 @@ mod tests {
         // Fields that already existed keep their values.
         assert_eq!(parsed.tgws.port, 1555);
         assert_eq!(parsed.tgws.pool_size, 4);
+    }
+
+    #[test]
+    fn config_without_proxy_flags_loads_with_defaults() {
+        // R1: a 2.2.0 config has none of the new keys; loading it must neither
+        // fail nor turn any switch on by itself.
+        let mut value = serde_json::to_value(AppConfig::default()).expect("json");
+        let tgws = value["tgws"].as_object_mut().expect("tgws object");
+        for key in [
+            "cf_worker_domains",
+            "no_secure",
+            "force_test_dc",
+            "proxy_protocol",
+        ] {
+            tgws.remove(key);
+        }
+        let parsed = parse_config(&value.to_string()).expect("parse");
+        assert!(parsed.tgws.cf_worker_domains.is_empty());
+        assert!(!parsed.tgws.no_secure);
+        assert!(!parsed.tgws.force_test_dc);
+        assert!(!parsed.tgws.proxy_protocol);
+    }
+
+    #[test]
+    fn the_legacy_worker_domain_migrates_into_the_list() {
+        let mut value = serde_json::to_value(AppConfig::default()).expect("json");
+        let tgws = value["tgws"].as_object_mut().expect("tgws object");
+        tgws.insert("cf_worker_domain".into(), "Worker.Example.com".into());
+        tgws.remove("cf_worker_domains");
+        let parsed = parse_config(&value.to_string()).expect("parse");
+        assert_eq!(parsed.tgws.cf_worker_domains, vec!["worker.example.com"]);
+        // The legacy field itself is left alone for a downgrade.
+        assert_eq!(parsed.tgws.cf_worker_domain, "Worker.Example.com");
+    }
+
+    #[test]
+    fn the_legacy_single_domain_migrates_into_the_list() {
+        let mut value = serde_json::to_value(AppConfig::default()).expect("json");
+        let tgws = value["tgws"].as_object_mut().expect("tgws object");
+        tgws.insert("cfproxy_user_domain".into(), " example.com ".into());
+        tgws.remove("cf_domains");
+        let parsed = parse_config(&value.to_string()).expect("parse");
+        assert_eq!(parsed.tgws.cf_domains, vec!["example.com"]);
+        assert_eq!(parsed.tgws.cfproxy_user_domain, " example.com ");
+
+        // An existing list wins: the migration never overwrites a choice the
+        // user already made in the new field.
+        let mut both = serde_json::to_value(AppConfig::default()).expect("json");
+        let tgws = both["tgws"].as_object_mut().expect("tgws object");
+        tgws.insert("cfproxy_user_domain".into(), "legacy.example.com".into());
+        tgws.insert("cf_domains".into(), serde_json::json!(["list.example.com"]));
+        let parsed = parse_config(&both.to_string()).expect("parse");
+        assert_eq!(parsed.tgws.cf_domains, vec!["list.example.com"]);
     }
 }
