@@ -48,3 +48,5 @@ build/tgws
 # Local notes and agent rules stay out of the public repository
 /docs/
 /AGENTS.md
+/releases/
+/.serena/

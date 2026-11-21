@@ -104,7 +104,25 @@ jobs:
             Add-Content $env:GITHUB_OUTPUT "should_release=true"
           }
 
+      # 2.2.0+ clients install an update only when the asset carries a valid
+      # minisign signature (src-tauri/src/signing.rs), and the binary verifies it
+      # against the public key compiled in from SPLITLINE_UPDATE_PUBKEY. A build
+      # without that key would ship an app that refuses every update, so a
+      # release build must have it. The value is a repository *variable*: the
+      # public key is not a secret, and it has to be visible for auditing.
+      - name: Check update signing key
+        if: steps.tagcheck.outputs.should_release == 'true'
+        shell: pwsh
+        env:
+          SPLITLINE_UPDATE_PUBKEY: ${{ vars.SPLITLINE_UPDATE_PUBKEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SPLITLINE_UPDATE_PUBKEY)) {
+            throw "Ключ подписи не настроен: переменная репозитория SPLITLINE_UPDATE_PUBKEY пуста. Сгенерируйте пару ключей через scripts/generate-signing-key.ps1, добавьте публичный ключ в переменную SPLITLINE_UPDATE_PUBKEY и секреты MINISIGN_SECRET_KEY / MINISIGN_SECRET_KEY_PASSWORD."
+          }
+
       - name: Build Tauri app (portable exe)
+        env:
+          SPLITLINE_UPDATE_PUBKEY: ${{ vars.SPLITLINE_UPDATE_PUBKEY }}
         run: npm run tauri build
 
       - name: Collect release artifacts
@@ -138,10 +156,66 @@ jobs:
           # uploaded asset, and the updater verifies that digest (updater.rs).
           Get-ChildItem $stage | Format-Table Name, Length
 
+      # Every released asset must carry a detached minisign signature: the
+      # updater looks for `<asset>.sig` and refuses to install anything without
+      # a valid one. So a release build without the signing secrets fails here
+      # instead of quietly publishing an unsigned (uninstallable) release.
+      #
+      # R8: the private key arrives through a repository secret, lives in a
+      # temporary file for the duration of this step and is deleted afterwards.
+      # Nothing in this step prints the key or the password; only file names and
+      # sizes reach the log.
+      - name: Sign release artifacts
+        if: steps.tagcheck.outputs.should_release == 'true'
+        shell: pwsh
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          MINISIGN_SECRET_KEY_PASSWORD: ${{ secrets.MINISIGN_SECRET_KEY_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          if ([string]::IsNullOrWhiteSpace($env:MINISIGN_SECRET_KEY)) {
+            throw "Релиз не подписан: секрет MINISIGN_SECRET_KEY не задан. Сгенерируйте ключ через scripts/generate-signing-key.ps1 и добавьте секреты MINISIGN_SECRET_KEY и MINISIGN_SECRET_KEY_PASSWORD."
+          }
+
+          # `tauri signer sign` takes the key file `tauri signer generate`
+          # writes, and puts the signature next to each file as `<name>.sig`.
+          $keyPath = Join-Path $env:RUNNER_TEMP "splitline-signing.key"
+          try {
+            Set-Content -Path $keyPath -Value $env:MINISIGN_SECRET_KEY -NoNewline
+
+            $files = @(
+              (Resolve-Path "release-artifacts/Splitline.exe").Path,
+              (Resolve-Path "release-artifacts/Splitline_*_portable.zip").Path
+            )
+            foreach ($file in $files) {
+              $arguments = @("--no-install", "tauri", "signer", "sign", "-f", $keyPath)
+              if (-not [string]::IsNullOrEmpty($env:MINISIGN_SECRET_KEY_PASSWORD)) {
+                $arguments += @("-p", $env:MINISIGN_SECRET_KEY_PASSWORD)
+              }
+              $arguments += $file
+              & npx @arguments
+              if ($LASTEXITCODE -ne 0) {
+                throw "Не удалось подписать $(Split-Path -Leaf $file)."
+              }
+              if (-not (Test-Path "$file.sig")) {
+                throw "После подписи $(Split-Path -Leaf $file) не появился файл .sig."
+              }
+            }
+          }
+          finally {
+            Remove-Item -Force $keyPath -ErrorAction SilentlyContinue
+          }
+
+          # The updater resolves the signature as `<asset name>.sig`.
+          Get-ChildItem "release-artifacts/*.sig" | Format-Table Name, Length
+          $version = "${{ steps.version.outputs.version }}"
+          Write-Host "Подписаны Splitline.exe и Splitline_${version}_x64_portable.zip"
+
       # SignPath is added after the OSS application is approved (see TODO.md).
-      # The intended order is: build unsigned -> SignPath -> replace release files
-      # with signed ones -> publish. While it is not configured, releases are
-      # unsigned and the app updater still verifies SHA-256 asset digests.
+      # It is Authenticode (Windows code reputation, SmartScreen), a different
+      # thing from the minisign signature above: the updater trusts the minisign
+      # key, Windows reputation trusts the certificate.
       #
       # - name: Sign with SignPath
       #   uses: signpath/github-action-submit-signing-request@v3
@@ -187,6 +261,24 @@ jobs:
         with:
           name: release-artifacts
           path: release-artifacts
+
+      # Second line of defence: an unsigned asset must not reach users even if
+      # the build job was changed. The app would reject it anyway, but then
+      # nobody could update at all.
+      - name: Check that every asset is signed
+        shell: pwsh
+        run: |
+          $assets = Get-ChildItem "release-artifacts" -File |
+            Where-Object { $_.Extension -in ".exe", ".zip" }
+          if (-not $assets) {
+            throw "В артефактах нет exe или zip — публиковать нечего."
+          }
+          $unsigned = $assets | Where-Object { -not (Test-Path "$($_.FullName).sig") }
+          if ($unsigned) {
+            $names = ($unsigned | ForEach-Object Name) -join ", "
+            throw "Релиз не подписан: нет файла .sig для $names. Публикация отменена."
+          }
+          Get-ChildItem "release-artifacts/*.sig" | ForEach-Object { Write-Host "Подпись: $($_.Name)" }
 
       - name: Extract release notes
         shell: pwsh
