@@ -108,3 +108,40 @@ export function tgwsEngineLabel(value: string | undefined | null): string {
 
 /** Domains the engine tries in the given order; the backend caps the list. */
 export const MAX_CF_DOMAINS = 10;
+
+/** Worker domains for the TCP fallback; the backend caps the list too. */
+export const MAX_WORKER_DOMAINS = 10;
+
+/** DC redirects; matches the backend's cap on `--dc-ip` entries. */
+export const MAX_DC_IPS = 10;
+
+/** Upstream clamps the buffer to this range (kilobytes). */
+export const TGWS_BUF_MIN_KB = 4;
+export const TGWS_BUF_MAX_KB = 4096;
+
+/** Ready WebSocket connections per DC; `0` disables the direct DC route. */
+export const TGWS_POOL_MIN = 0;
+export const TGWS_POOL_MAX = 32;
+
+/** A whole number, or `null` for an empty or non-numeric field. */
+function parseWholeNumber(value: string): number | null {
+  const text = value.trim();
+  return /^\d+$/.test(text) ? Number(text) : null;
+}
+
+/**
+ * Why the buffer/pool pair cannot be saved, in one sentence; empty when both
+ * are valid. The rules mirror the backend, so the page can explain a typo
+ * before the proxy is restarted.
+ */
+export function tgwsLimitsError(bufKb: string, poolSize: string): string {
+  const buf = parseWholeNumber(bufKb);
+  if (buf === null || buf < TGWS_BUF_MIN_KB || buf > TGWS_BUF_MAX_KB) {
+    return `Буфер — целое число от ${TGWS_BUF_MIN_KB} до ${TGWS_BUF_MAX_KB} КБ.`;
+  }
+  const pool = parseWholeNumber(poolSize);
+  if (pool === null || pool < TGWS_POOL_MIN || pool > TGWS_POOL_MAX) {
+    return `Пул — целое число от ${TGWS_POOL_MIN} до ${TGWS_POOL_MAX}.`;
+  }
+  return "";
+}
