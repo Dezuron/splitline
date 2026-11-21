@@ -47,6 +47,7 @@ import {
   exportXraySites,
   getXraySiteBundles,
   importXraySites,
+  tgwsActivity,
   tgwsRunning,
   toggleXray,
   updateXraySiteBases,
@@ -77,8 +78,12 @@ const running = computed(() => xrayStatus.value?.state === "running");
 const telegramConnected = computed(() => (xrayStatus.value?.client_connections ?? 0) > 0);
 /** The last byte through the tunnel: "—" until traffic is confirmed. */
 const vpnLastActivityLabel = computed(() => formatAgo(xrayLastTrafficAt.value));
-/** Telegram keeps only one proxy at a time, so an active MTProto proxy wins over the VPN. */
-const telegramOnProxy = computed(() => tgwsRunning.value && !telegramConnected.value);
+/**
+ * Telegram keeps only one proxy at a time, so an active MTProto connection
+ * wins over the VPN. A running proxy with no client is not proof: the page
+ * asks to connect instead of claiming Telegram is already on it.
+ */
+const telegramOnProxy = computed(() => tgwsRunning.value && tgwsActivity.value === "active");
 const transitioning = computed(
   () => xrayStatus.value?.state === "starting" || xrayStatus.value?.state === "stopping",
 );
