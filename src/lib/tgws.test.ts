@@ -3,10 +3,17 @@ import {
   displayHost,
   isPublicBinding,
   MAX_CF_DOMAINS,
+  MAX_DC_IPS,
+  MAX_WORKER_DOMAINS,
   normalizeTgwsEngine,
+  TGWS_BUF_MAX_KB,
+  TGWS_BUF_MIN_KB,
   TGWS_ENGINES,
+  TGWS_POOL_MAX,
+  TGWS_POOL_MIN,
   tgwsEndpoint,
   tgwsEngineLabel,
+  tgwsLimitsError,
   tgwsLogTail,
   tgwsStateLabel,
   tgwsTone,
@@ -107,5 +114,36 @@ describe("TGWS_ENGINES", () => {
     expect(TGWS_ENGINES[1].label).toContain("beta");
     // The page and the backend must cap the list the same way.
     expect(MAX_CF_DOMAINS).toBe(10);
+  });
+});
+
+describe("list caps", () => {
+  it("matches the backend limits for Worker domains and DC redirects", () => {
+    expect(MAX_WORKER_DOMAINS).toBe(10);
+    expect(MAX_DC_IPS).toBe(10);
+  });
+});
+
+describe("tgwsLimitsError", () => {
+  it("accepts the whole allowed range", () => {
+    expect(tgwsLimitsError(String(TGWS_BUF_MIN_KB), String(TGWS_POOL_MIN))).toBe("");
+    expect(tgwsLimitsError(String(TGWS_BUF_MAX_KB), String(TGWS_POOL_MAX))).toBe("");
+    expect(tgwsLimitsError("512", "4")).toBe("");
+    expect(tgwsLimitsError(" 512 ", " 4 ")).toBe("");
+  });
+
+  it("explains a bad buffer before touching the pool", () => {
+    expect(tgwsLimitsError("3", "4")).toContain("Буфер");
+    expect(tgwsLimitsError("4097", "4")).toContain("Буфер");
+    expect(tgwsLimitsError("", "4")).toContain("Буфер");
+    expect(tgwsLimitsError("4.5", "4")).toContain("Буфер");
+    expect(tgwsLimitsError("-1", "4")).toContain("Буфер");
+  });
+
+  it("explains a bad pool", () => {
+    expect(tgwsLimitsError("256", "33")).toContain("Пул");
+    expect(tgwsLimitsError("256", "-1")).toContain("Пул");
+    expect(tgwsLimitsError("256", "")).toContain("Пул");
+    expect(tgwsLimitsError("256", "много")).toContain("Пул");
   });
 });
