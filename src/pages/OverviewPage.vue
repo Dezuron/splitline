@@ -217,16 +217,18 @@ function speedLabel(bytes: number): string {
         >
           {{ updatesLabel }}
         </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          title="Проверить обновления"
-          aria-label="Проверить обновления"
-          :disabled="checkingAllUpdates"
-          @click="refreshUpdates"
-        >
-          <RefreshCw :size="15" :class="{ spinning: checkingAllUpdates }" />
-        </Button>
+        <div class="home-hero-footer">
+          <Button
+            variant="outline"
+            size="icon"
+            title="Проверить обновления"
+            aria-label="Проверить обновления"
+            :disabled="checkingAllUpdates"
+            @click="refreshUpdates"
+          >
+            <RefreshCw :size="15" :class="{ spinning: checkingAllUpdates }" />
+          </Button>
+        </div>
       </div>
     </Card>
 
