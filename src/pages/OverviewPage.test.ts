@@ -143,7 +143,7 @@ function versionRows(container: HTMLElement): VersionRow[] {
   }));
 }
 
-describe("OverviewPage hero versions", () => {
+describe("OverviewPage versions card", () => {
   beforeEach(() => {
     status.value = makeStatus();
     xrayStatus.value = makeXray();
@@ -208,7 +208,7 @@ describe("OverviewPage hero versions", () => {
   it("sends the updates button to the settings page", async () => {
     makeAppUpdate(true);
     const page = await mountPage();
-    const button = page.querySelector<HTMLButtonElement>(".home-hero button");
+    const button = page.querySelector<HTMLButtonElement>(".versions-card button");
 
     expect(button?.textContent?.trim()).toBe("Доступно 1 обновление");
     button?.click();
@@ -220,7 +220,7 @@ describe("OverviewPage hero versions", () => {
   it("has a quiet refresh button with an accessible name", async () => {
     const page = await mountPage();
     const button = page.querySelector<HTMLButtonElement>(
-      '.home-hero button[aria-label="Проверить обновления"]',
+      '.versions-card button[aria-label="Проверить обновления"]',
     );
 
     expect(button?.title).toBe("Проверить обновления");
@@ -228,28 +228,27 @@ describe("OverviewPage hero versions", () => {
     expect(button?.disabled).toBe(false);
   });
 
-  it("puts the refresh button at the end of the versions row", async () => {
+  it("moves the versions into a separate card at the bottom", async () => {
     const page = await mountPage();
-    const row = page.querySelector(".home-hero-bottom");
-    const button = row?.querySelector('button[aria-label="Проверить обновления"]');
+    const card = page.querySelector(".versions-card");
 
-    expect(row?.firstElementChild?.classList.contains("home-hero-versions")).toBe(true);
-    expect(row?.lastElementChild).toBe(button);
-    expect(button).not.toBeNull();
+    expect(page.querySelector(".home-hero .home-version")).toBeNull();
+    expect(card?.querySelectorAll(".versions-list .home-version")).toHaveLength(4);
+    expect(card?.querySelector('button[aria-label="Проверить обновления"]')).not.toBeNull();
   });
 
   it("spins and disables the refresh button while a check is running", async () => {
     checkingAppUpdate.value = true;
     const page = await mountPage();
     const button = page.querySelector<HTMLButtonElement>(
-      '.home-hero button[aria-label="Проверить обновления"]',
+      '.versions-card button[aria-label="Проверить обновления"]',
     );
 
     expect(button?.disabled).toBe(true);
     expect(button?.querySelector("svg")?.classList.contains("spinning")).toBe(true);
   });
 
-  it("checks all three components from the hero button", async () => {
+  it("checks all three components from the versions card", async () => {
     const invoke = vi.fn((cmd: string) => {
       if (cmd === "check_app_update") return Promise.resolve(null);
       if (cmd === "check_update") {
@@ -282,7 +281,7 @@ describe("OverviewPage hero versions", () => {
 
     const page = await mountPage();
     page
-      .querySelector<HTMLButtonElement>('.home-hero button[aria-label="Проверить обновления"]')
+      .querySelector<HTMLButtonElement>('.versions-card button[aria-label="Проверить обновления"]')
       ?.click();
 
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(3));
