@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
-import { ArrowUpRight, Send, ShieldCheck, Zap } from "lucide-vue-next";
+import { ArrowUpRight, RefreshCw, Send, ShieldCheck, Zap } from "lucide-vue-next";
 import Button from "../components/ui/button/Button.vue";
 import Card from "../components/ui/card/Card.vue";
 import CardContent from "../components/ui/card/CardContent.vue";
@@ -10,12 +10,16 @@ import CardHeader from "../components/ui/card/CardHeader.vue";
 import CardTitle from "../components/ui/card/CardTitle.vue";
 import Switch from "../components/ui/switch/Switch.vue";
 import Sparkline from "../components/Sparkline.vue";
-import { formatBytes } from "../lib/labels";
+import { formatBytes, versionLabel } from "../lib/labels";
 import {
   activeServiceCount,
   appUpdate,
+  appVersion,
   benchRunning,
   busy,
+  checkAllUpdates,
+  checkingAppUpdate,
+  checkingUpdate,
   config,
   running,
   runtimeReady,
@@ -24,8 +28,10 @@ import {
   statusTone,
   tgwsActiveConnections,
   tgwsBusy,
+  tgwsChecking,
   tgwsLastActivityLabel,
   tgwsRunning,
+  tgwsStatus,
   tgwsStatusText,
   tgwsUpdate,
   toggleStart,
@@ -66,6 +72,60 @@ const updatesLabel = computed(() => {
   if (!count) return "Обновлений нет";
   return count === 1 ? "Доступно 1 обновление" : `Доступно обновлений: ${count}`;
 });
+
+/** Any of the three checks running: the hero button spins and ignores clicks. */
+const checkingAllUpdates = computed(
+  () => checkingAppUpdate.value || checkingUpdate.value || tgwsChecking.value,
+);
+
+/**
+ * One click checks the app, flowseal-zapret and the Telegram proxy; the store
+ * already reports the result as a toast, including "Обновлений нет."
+ */
+async function refreshUpdates() {
+  if (checkingAllUpdates.value) return;
+  await checkAllUpdates();
+}
+
+/** The Telegram dot respects a dismissed release; the button keeps its own count. */
+const telegramUpdatePending = computed(
+  () => !!tgwsUpdate.value?.has_update && !tgwsUpdate.value.dismissed,
+);
+
+interface HeroVersion {
+  key: string;
+  label: string;
+  version: string;
+  update: boolean;
+}
+
+/** What is installed where: one row of versions for the hero. */
+const versions = computed<HeroVersion[]>(() => [
+  {
+    key: "splitline",
+    label: "Splitline",
+    version: versionLabel(appVersion.value),
+    update: appHasUpdate.value,
+  },
+  {
+    key: "zapret",
+    label: "zapret",
+    version: versionLabel(status.value?.installed_version),
+    update: zapretHasUpdate.value,
+  },
+  {
+    key: "xray",
+    label: "Xray",
+    version: versionLabel(xrayStatus.value?.installed_version),
+    update: false,
+  },
+  {
+    key: "telegram",
+    label: "Telegram",
+    version: versionLabel(tgwsStatus.value?.installed_version),
+    update: telegramUpdatePending.value,
+  },
+]);
 
 const vpnRunning = computed(() => xrayStatus.value?.state === "running");
 const heroHint = computed(() =>
@@ -149,6 +209,27 @@ function speedLabel(bytes: number): string {
         >
           {{ updatesLabel }}
         </Button>
+        <div class="home-hero-bottom">
+          <ul class="home-hero-versions">
+            <li v-for="item in versions" :key="item.key" class="home-version">
+              <span v-if="item.update" class="home-version-dot" aria-hidden="true"></span>
+              <span class="home-version-label">{{ item.label }}</span>
+              <strong class="home-version-value">{{ item.version }}</strong>
+              <span v-if="item.update" class="sr-only">— доступно обновление</span>
+            </li>
+          </ul>
+          <Button
+            class="home-hero-refresh"
+            variant="outline"
+            size="icon"
+            title="Проверить обновления"
+            aria-label="Проверить обновления"
+            :disabled="checkingAllUpdates"
+            @click="refreshUpdates"
+          >
+            <RefreshCw :size="15" :class="{ spinning: checkingAllUpdates }" />
+          </Button>
+        </div>
       </div>
     </Card>
 

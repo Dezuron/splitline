@@ -25,6 +25,12 @@ export function formatBytes(bytes: number): string {
     : (bytes / 1024).toFixed(0) + " КБ";
 }
 
+/** A version for a compact block: an empty value reads as "—", never blank. */
+export function versionLabel(version: string | null | undefined): string {
+  const text = version?.trim();
+  return text ? text : "—";
+}
+
 export function formatTimestamp(seconds: number): string {
   if (!seconds) return "";
   return new Intl.DateTimeFormat("ru-RU", {

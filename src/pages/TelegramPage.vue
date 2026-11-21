@@ -2042,16 +2042,6 @@ async function commitSecret() {
   word-break: break-word;
 }
 
-.spinning {
-  animation: tgws-spin 0.9s linear infinite;
-}
-
-@keyframes tgws-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @media (max-width: 860px) {
   .tgws-meta {
     grid-template-columns: minmax(0, 1fr);

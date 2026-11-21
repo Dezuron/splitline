@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatTimestamp } from "./labels";
+import { formatBytes, formatTimestamp, versionLabel } from "./labels";
 
 describe("formatBytes", () => {
   it("returns an empty string for zero", () => {
@@ -12,6 +12,19 @@ describe("formatBytes", () => {
 
   it("formats megabytes", () => {
     expect(formatBytes(2 * 1024 * 1024 + 1)).toBe("2.0 МБ");
+  });
+});
+
+describe("versionLabel", () => {
+  it("keeps a known version", () => {
+    expect(versionLabel("1.10.4")).toBe("1.10.4");
+  });
+
+  it("reads an empty value as a dash instead of blank", () => {
+    expect(versionLabel("")).toBe("—");
+    expect(versionLabel("   ")).toBe("—");
+    expect(versionLabel(null)).toBe("—");
+    expect(versionLabel(undefined)).toBe("—");
   });
 });
 
