@@ -1,10 +1,16 @@
 //! Application self-update, modelled on Flowseal/tg-ws-proxy:
-//! GitHub latest release -> SHA-256 check -> replace the running exe -> restart.
+//! GitHub latest release -> SHA-256 check -> signature check -> replace the
+//! running exe -> restart.
 //!
-//! Updates are not signed with minisign. The asset must carry a SHA-256 `digest`
-//! from the GitHub API; without it the app only offers the release page.
+//! Two independent checks guard the swap. The asset must carry a SHA-256
+//! `digest` from the GitHub API (transport integrity), and the release must
+//! publish `<asset>.sig` — a detached minisign signature made with the release
+//! private key, verified against the public key compiled into the binary
+//! (`signing.rs`). Without a signature the update is refused; see
+//! `SECURITY.md` for what that protects against.
 
 use crate::runtime;
+use crate::signing;
 use crate::sys;
 use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
@@ -20,6 +26,8 @@ const ASSET_NAME: &str = "Splitline.exe";
 /// both files so 1.2.x clients keep updating.
 const LEGACY_ASSET_NAME: &str = "zapret-ui.exe";
 const MAX_UPDATE_BYTES: u64 = 200 * 1024 * 1024;
+/// A minisign `.sig` file is a few hundred bytes; anything larger is not one.
+const MAX_SIGNATURE_BYTES: u64 = 8 * 1024;
 
 /// Backup of the currently running exe, next to it: `Splitline_old.exe`.
 fn backup_name(current: &Path) -> OsString {
@@ -58,6 +66,15 @@ pub struct UpdateInfo {
     pub notes: String,
     pub size: u64,
     pub can_auto_update: bool,
+    /// Why an automatic update is not possible, when it is not. The text is
+    /// ready to be shown to the user as is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature_note: Option<String>,
+    /// Key id (uppercase hex) of the public key this build checks signatures
+    /// with. Shown next to the update channel so it can be compared with
+    /// `SECURITY.md`; absent when the build has no key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_fingerprint: Option<String>,
 }
 
 fn client(timeout: Duration) -> Result<reqwest::blocking::Client, String> {
@@ -140,6 +157,40 @@ fn select_asset(release: &Release) -> Option<&Asset> {
     usable(ASSET_NAME).or_else(|| usable(LEGACY_ASSET_NAME))
 }
 
+/// Detached signature published next to `asset` (`Splitline.exe.sig`).
+fn signature_asset<'a>(release: &'a Release, asset: &Asset) -> Option<&'a Asset> {
+    let wanted = signing::signature_file_name(&asset.name);
+    release
+        .assets
+        .iter()
+        .find(|candidate| candidate.name == wanted)
+}
+
+/// The asset that can actually be installed, or the reason it cannot.
+///
+/// This is the single place that decides whether the automatic update is
+/// allowed, so `check` and `apply_latest` cannot disagree. An `Err` carries
+/// text meant for the user.
+fn auto_update_ready_for<'a>(
+    release: &'a Release,
+    public_key: Option<&str>,
+) -> Result<&'a Asset, String> {
+    let Some(asset) = select_asset(release) else {
+        return Err("В релизе нет файла Splitline.exe с корректной SHA-256 суммой — обновитесь со страницы релиза.".into());
+    };
+    if public_key.is_none() {
+        return Err(signing::MISSING_KEY_MESSAGE.into());
+    }
+    if signature_asset(release, asset).is_none() {
+        return Err(signing::UNSIGNED_RELEASE_MESSAGE.into());
+    }
+    Ok(asset)
+}
+
+fn auto_update_ready(release: &Release) -> Result<&Asset, String> {
+    auto_update_ready_for(release, signing::update_public_key())
+}
+
 pub fn check() -> Result<Option<UpdateInfo>, String> {
     let Some(release) = fetch_latest()? else {
         return Ok(None);
@@ -147,7 +198,7 @@ pub fn check() -> Result<Option<UpdateInfo>, String> {
     let current = env!("CARGO_PKG_VERSION").to_string();
     let latest = normalize_version(&release.tag_name);
     let size = select_asset(&release).map(|asset| asset.size).unwrap_or(0);
-    let can_auto_update = select_asset(&release).is_some();
+    let signature_note = auto_update_ready(&release).err();
     Ok(Some(UpdateInfo {
         available: is_newer(&latest, &current),
         latest,
@@ -155,7 +206,9 @@ pub fn check() -> Result<Option<UpdateInfo>, String> {
         url: release.html_url,
         notes: release.body,
         size,
-        can_auto_update,
+        can_auto_update: signature_note.is_none(),
+        signature_note,
+        key_fingerprint: signing::update_public_key().and_then(signing::fingerprint),
     }))
 }
 
@@ -213,6 +266,39 @@ fn download(app: &tauri::AppHandle, asset: &Asset) -> Result<(PathBuf, u64), Str
     Ok((destination, written))
 }
 
+/// Downloads the detached `.sig` that belongs to `asset`.
+///
+/// The signature is downloaded before the exe: it is a few hundred bytes, so a
+/// release without a usable signature fails without downloading 40 MB first.
+fn download_signature(release: &Release, asset: &Asset) -> Result<String, String> {
+    let signature_asset = signature_asset(release, asset)
+        .ok_or_else(|| signing::UNSIGNED_RELEASE_MESSAGE.to_string())?;
+
+    let response = client(Duration::from_secs(60))?
+        .get(&signature_asset.browser_download_url)
+        .send()
+        .map_err(|e| format!("Не удалось скачать подпись обновления: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Не удалось скачать подпись обновления: {}",
+            response.status()
+        ));
+    }
+    if response.content_length().unwrap_or(0) > MAX_SIGNATURE_BYTES {
+        return Err(signing::CORRUPT_SIGNATURE_MESSAGE.into());
+    }
+
+    let mut text = String::new();
+    response
+        .take(MAX_SIGNATURE_BYTES + 1)
+        .read_to_string(&mut text)
+        .map_err(|_| signing::CORRUPT_SIGNATURE_MESSAGE.to_string())?;
+    if text.len() as u64 > MAX_SIGNATURE_BYTES || text.trim().is_empty() {
+        return Err(signing::CORRUPT_SIGNATURE_MESSAGE.into());
+    }
+    Ok(text)
+}
+
 fn relaunch_args() -> Vec<OsString> {
     let mut args = Vec::new();
     let mut iterator = std::env::args_os().skip(1);
@@ -226,7 +312,13 @@ fn relaunch_args() -> Vec<OsString> {
     args
 }
 
-fn replace_and_restart(downloaded: &Path) -> Result<(), String> {
+/// Replaces the running exe with the already verified bytes and starts the new
+/// version.
+///
+/// The binary is written from memory on purpose: reading the downloaded file
+/// again would open a window where a local process could swap it between the
+/// signature check and the swap.
+fn replace_and_restart(binary: &[u8]) -> Result<(), String> {
     let current = std::env::current_exe().map_err(|e| e.to_string())?;
     let parent = current
         .parent()
@@ -240,12 +332,10 @@ fn replace_and_restart(downloaded: &Path) -> Result<(), String> {
 
     fs::rename(&current, &backup).map_err(|e| format!("Не удалось подготовить замену exe: {e}"))?;
 
-    if let Err(error) = fs::copy(downloaded, &current) {
+    if let Err(error) = fs::write(&current, binary) {
         let _ = fs::rename(&backup, &current);
-        let _ = fs::remove_file(downloaded);
         return Err(format!("Не удалось заменить exe: {error}"));
     }
-    let _ = fs::remove_file(downloaded);
 
     // A relaunch started while Windows is ending the session dies in the
     // loader with 0xc0000142 and shows a dialog; the new exe will start on the
@@ -287,9 +377,8 @@ pub fn apply_latest(app: &tauri::AppHandle) -> Result<(), String> {
     if !is_newer(&latest, current) {
         return Err("Установлена последняя версия приложения.".into());
     }
-    let asset = select_asset(&release).ok_or(
-        "В релизе нет файла Splitline.exe с корректной SHA-256 суммой — обновитесь со страницы релиза.",
-    )?;
+    let asset = auto_update_ready(&release)?;
+    let signature_text = download_signature(&release, asset)?;
 
     let _ = app.emit("app-update-progress", "Скачивание обновления…");
     let downloaded = match download(app, asset) {
@@ -302,8 +391,25 @@ pub fn apply_latest(app: &tauri::AppHandle) -> Result<(), String> {
             return Err(error);
         }
     };
+
+    // The signature is checked before the exe swap: a release whose signature
+    // does not match the downloaded bytes must leave the installation intact.
+    let _ = app.emit("app-update-progress", "Проверка подписи…");
+    let verified = fs::read(&downloaded)
+        .map_err(|e| format!("Не удалось прочитать файл обновления: {e}"))
+        .and_then(|bytes| signing::verify_update(&bytes, &signature_text).map(|()| bytes));
+    let binary = match verified {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            let _ = fs::remove_file(&downloaded);
+            crate::progress::fail(app, "app-update", "Обновление приложения", &error);
+            return Err(error);
+        }
+    };
+    let _ = fs::remove_file(&downloaded);
+
     let _ = app.emit("app-update-progress", "Установка и перезапуск…");
-    replace_and_restart(&downloaded)
+    replace_and_restart(&binary)
 }
 
 /// Removes the backup left by the previous update after the old process exited.
@@ -361,5 +467,90 @@ mod tests {
         .is_some());
         assert!(select_asset(&make(None)).is_none());
         assert!(select_asset(&make(Some("sha256:no"))).is_none());
+    }
+
+    const TEST_DIGEST: &str =
+        "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    fn asset(name: &str, digest: bool) -> Asset {
+        Asset {
+            name: name.into(),
+            browser_download_url: format!("https://example/{name}"),
+            size: 10,
+            digest: digest.then(|| TEST_DIGEST.to_string()),
+        }
+    }
+
+    fn release(assets: Vec<Asset>) -> Release {
+        Release {
+            tag_name: "v2.2.0".into(),
+            html_url: "https://example/release".into(),
+            body: String::new(),
+            assets,
+        }
+    }
+
+    #[test]
+    fn signature_is_looked_up_next_to_the_asset() {
+        let signed = release(vec![
+            asset(ASSET_NAME, true),
+            asset("Splitline.exe.sig", false),
+            asset("Splitline_2.2.0_x64_portable.zip", true),
+        ]);
+        let selected = select_asset(&signed).unwrap();
+        assert_eq!(
+            signature_asset(&signed, selected).map(|sig| sig.name.as_str()),
+            Some("Splitline.exe.sig")
+        );
+
+        // The pre-rename asset carries its own signature file.
+        let legacy = release(vec![
+            asset(ASSET_NAME, false),
+            asset(LEGACY_ASSET_NAME, true),
+            asset("zapret-ui.exe.sig", false),
+        ]);
+        let selected = select_asset(&legacy).unwrap();
+        assert_eq!(selected.name, LEGACY_ASSET_NAME);
+        assert_eq!(
+            signature_asset(&legacy, selected).map(|sig| sig.name.as_str()),
+            Some("zapret-ui.exe.sig")
+        );
+
+        let unsigned = release(vec![asset(ASSET_NAME, true)]);
+        let selected = select_asset(&unsigned).unwrap();
+        assert!(signature_asset(&unsigned, selected).is_none());
+    }
+
+    #[test]
+    fn auto_update_needs_digest_key_and_signature() {
+        let signed = release(vec![
+            asset(ASSET_NAME, true),
+            asset("Splitline.exe.sig", false),
+        ]);
+        // Any non-empty key means "the build has one"; the key itself is not
+        // parsed here (see signing.rs for the cryptographic checks).
+        assert!(auto_update_ready_for(&signed, Some("RWQtest")).is_ok());
+
+        // A build without a public key refuses to update at all.
+        assert_eq!(
+            auto_update_ready_for(&signed, None).unwrap_err(),
+            signing::MISSING_KEY_MESSAGE
+        );
+
+        // A release without a signature is not installable either.
+        let unsigned = release(vec![asset(ASSET_NAME, true)]);
+        assert_eq!(
+            auto_update_ready_for(&unsigned, Some("RWQtest")).unwrap_err(),
+            signing::UNSIGNED_RELEASE_MESSAGE
+        );
+
+        // Nor is one without a usable asset (no digest).
+        let no_digest = release(vec![
+            asset(ASSET_NAME, false),
+            asset("Splitline.exe.sig", false),
+        ]);
+        assert!(auto_update_ready_for(&no_digest, Some("RWQtest"))
+            .unwrap_err()
+            .contains("Splitline.exe"));
     }
 }

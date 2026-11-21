@@ -16,7 +16,14 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: openMock }));
 vi.mock("../lib/confirm", () => ({ confirmAction: confirmMock }));
 vi.mock("../lib/toast", () => ({ toast: toastMock }));
 
-import { applyTheme, checkUpdate, chooseRuntimeFolder, dismissWhatsNew } from "./actions";
+import {
+  applyTheme,
+  checkUpdate,
+  chooseRuntimeFolder,
+  dismissWhatsNew,
+  readCachedTheme,
+  toggleAutostart,
+} from "./actions";
 
 const statusFixture: AppStatus = {
   app_version: "1.2.0",
@@ -82,6 +89,22 @@ describe("themes", () => {
     expect(document.documentElement.dataset.theme).toBe("satellite");
     applyTheme("stencil");
     expect(document.documentElement.dataset.theme).toBe("carmine");
+  });
+
+  it("caches the applied theme for the next cold start", () => {
+    applyTheme("carmine");
+    expect(readCachedTheme()).toBe("carmine");
+    // `main.ts` reads this before mounting: the cached value must be usable.
+    expect(localStorage.getItem("splitline.theme")).toBe("carmine");
+
+    applyTheme("satellite");
+    expect(readCachedTheme()).toBe("satellite");
+
+    localStorage.setItem("splitline.theme", "light");
+    expect(readCachedTheme()).toBe("carmine");
+
+    localStorage.removeItem("splitline.theme");
+    expect(readCachedTheme()).toBeUndefined();
   });
 });
 
@@ -151,6 +174,41 @@ describe("folder selection", () => {
 
     toastMock.mockReset();
     await checkUpdate(true);
+    expect(toastMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("autostart", () => {
+  beforeEach(() => {
+    status.value = statusFixture;
+    invokeMock.mockReset();
+    toastMock.mockReset();
+  });
+
+  function mockAutostart(result: { mode: string; warning: string | null }) {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === "get_state") return statusFixture;
+      if (command === "get_config") return configFixture;
+      if (command === "set_autostart") return result;
+      return null;
+    });
+  }
+
+  it("warns when the task could not be created and the Run key is used", async () => {
+    const warning = "Автозапуск включён, но Windows запросит подтверждение при входе.";
+    mockAutostart({ mode: "run-key", warning });
+
+    await toggleAutostart(true);
+
+    expect(invokeMock).toHaveBeenCalledWith("set_autostart", { enabled: true });
+    expect(toastMock).toHaveBeenCalledWith("warning", warning);
+  });
+
+  it("stays silent when the scheduled task was created", async () => {
+    mockAutostart({ mode: "task", warning: null });
+
+    await toggleAutostart(true);
+
     expect(toastMock).not.toHaveBeenCalled();
   });
 });

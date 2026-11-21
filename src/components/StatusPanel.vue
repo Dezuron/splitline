@@ -35,6 +35,11 @@ import {
       </div>
     </div>
 
+    <p v-if="running" class="muted">
+      Служба запущена — это не проверка стратегии. Пробивает ли она блокировки, покажет «Текущая» в
+      блоке «Стратегии».
+    </p>
+
     <div class="field-block">
       <span class="field-label">Активная стратегия</span>
       <span class="field-value" :title="currentName">{{ currentName || "—" }}</span>
@@ -51,9 +56,9 @@ import {
     </div>
 
     <Button
-      class="w-full"
-      size="lg"
-      :variant="running ? 'destructive' : 'default'"
+      :class="running ? 'stop-bypass' : 'w-full'"
+      :size="running ? 'default' : 'lg'"
+      :variant="running ? 'secondary' : 'default'"
       :disabled="busy || !runtimeReady || benchRunning"
       @click="toggleStart"
     >

@@ -120,3 +120,8 @@ pub fn stop(state: State<'_, AppState>) -> AppResult<()> {
     }
     Ok(())
 }
+
+/// Choosing and starting the bypass strategy.
+pub fn strategies_commands() -> CommandSet {
+    command_set![set_strategy, start, stop]
+}

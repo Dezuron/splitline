@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ArrowUpRight, Send, ShieldCheck, Zap } from "lucide-vue-next";
 import Button from "../components/ui/button/Button.vue";
@@ -12,6 +12,7 @@ import Switch from "../components/ui/switch/Switch.vue";
 import Sparkline from "../components/Sparkline.vue";
 import { formatBytes } from "../lib/labels";
 import {
+  activeServiceCount,
   appUpdate,
   benchRunning,
   busy,
@@ -21,10 +22,11 @@ import {
   status,
   statusText,
   statusTone,
+  tgwsActiveConnections,
   tgwsBusy,
+  tgwsLastActivityLabel,
   tgwsRunning,
-  tgwsStateText,
-  tgwsStatus,
+  tgwsStatusText,
   tgwsUpdate,
   toggleStart,
   toggleTgws,
@@ -39,6 +41,7 @@ import {
   tunnelPing,
   tunnelSlo,
   updateInfo,
+  vpnStatusText,
   xrayBusy,
   xrayStatus,
 } from "../store";
@@ -48,7 +51,7 @@ const router = useRouter();
 
 const zapretState = computed(() => {
   if (!runtimeReady.value) return "Не установлен";
-  return running.value ? "Включён" : "Выключен";
+  return running.value ? "Работает" : "Выключен";
 });
 
 const appHasUpdate = computed(() => !!appUpdate.value?.available);
@@ -65,38 +68,64 @@ const updatesLabel = computed(() => {
 });
 
 const vpnRunning = computed(() => xrayStatus.value?.state === "running");
-const activeServices = computed(
-  () =>
-    [runtimeReady.value && running.value, tgwsRunning.value, vpnRunning.value].filter(Boolean)
-      .length,
-);
 const heroHint = computed(() =>
-  activeServices.value ? `Активно сервисов: ${activeServices.value} из 3` : "Все сервисы выключены",
+  activeServiceCount.value
+    ? `Работает сервисов: ${activeServiceCount.value} из 3`
+    : "Все сервисы выключены",
 );
 
 const telegramEndpoint = computed(() =>
   tgwsEndpoint(config.value?.tgws.host, config.value?.tgws.port),
 );
-const vpnHint = computed(() => {
-  if (!xrayStatus.value) return "Загрузка…";
-  if (!vpnRunning.value) return "VPN выключен";
-  const connections = xrayStatus.value.client_connections ?? 0;
-  return connections > 0 ? "Telegram через VPN" : "VPN подключён";
-});
 const vpnProfile = computed(() => xrayStatus.value?.profile_name || "не выбрана");
 const vpnEndpoint = computed(() => `127.0.0.1:${xrayStatus.value?.socks_port ?? 17808}`);
 
-const telegramHint = computed(() => {
-  if (!tgwsRunning.value) return tgwsStateText.value;
-  return (tgwsStatus.value?.client_connections_total ?? 0) > 0
-    ? "Прокси включён"
-    : "Прокси включён · Telegram не подключён";
+/** The chart shows the last minute: 30 samples at the 2 s poll interval. */
+const CHART_SAMPLES = 30;
+const SAMPLE_SECONDS = 2;
+
+const chartSamples = computed(() => trafficSamples.value.slice(-CHART_SAMPLES));
+const downSeries = computed(() => chartSamples.value.map((sample) => sample.down));
+const upSeries = computed(() => chartSamples.value.map((sample) => sample.up));
+const chartSeries = computed(() => [
+  { key: "down", values: downSeries.value },
+  { key: "up", values: upSeries.value },
+]);
+const trafficMax = computed(() => Math.max(1, ...downSeries.value, ...upSeries.value));
+const windowLabel = computed(() => `${chartSamples.value.length * SAMPLE_SECONDS} с`);
+const sessionBytes = computed(() => trafficTotalDown.value + trafficTotalUp.value);
+
+/** Hover state: one index feeds both the time tip and the vertical cursor. */
+const hoverIndex = ref<number | null>(null);
+const hoverSample = computed(() =>
+  hoverIndex.value === null ? null : (chartSamples.value[hoverIndex.value] ?? null),
+);
+const hoverExactLeft = computed(() => {
+  const count = chartSamples.value.length;
+  if (hoverIndex.value === null || count < 2) return 50;
+  return (hoverIndex.value / (count - 1)) * 100;
+});
+/** The tip stays inside the plot; the cursor sits exactly on the sample. */
+const hoverTipLeft = computed(() => Math.min(86, Math.max(14, hoverExactLeft.value)));
+const hoverAgo = computed(() => {
+  const count = chartSamples.value.length;
+  if (hoverIndex.value === null) return "";
+  const seconds = (count - 1 - hoverIndex.value) * SAMPLE_SECONDS;
+  return seconds === 0 ? "сейчас" : `${seconds} с назад`;
 });
 
-const downSeries = computed(() => trafficSamples.value.map((sample) => sample.down));
-const upSeries = computed(() => trafficSamples.value.map((sample) => sample.up));
-const trafficMax = computed(() => Math.max(1, ...downSeries.value, ...upSeries.value));
-const sessionBytes = computed(() => trafficTotalDown.value + trafficTotalUp.value);
+function onChartMove(event: MouseEvent) {
+  const count = chartSamples.value.length;
+  if (!count) return;
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  if (!rect.width) return;
+  const ratio = (event.clientX - rect.left) / rect.width;
+  hoverIndex.value = Math.min(count - 1, Math.max(0, Math.round(ratio * (count - 1))));
+}
+
+function clearChartHover() {
+  hoverIndex.value = null;
+}
 
 function speedLabel(bytes: number): string {
   return bytes < 1 ? "0 Б/с" : `${formatBytes(bytes)}/с`;
@@ -123,7 +152,7 @@ function speedLabel(bytes: number): string {
       </div>
     </Card>
 
-    <Card v-if="vpnRunning" class="traffic-card">
+    <Card class="traffic-card">
       <div class="traffic-head">
         <div class="traffic-title-block">
           <span class="eyebrow">VPN</span>
@@ -133,7 +162,7 @@ function speedLabel(bytes: number): string {
       </div>
 
       <div class="traffic-body">
-        <div class="traffic-numbers">
+        <div v-if="vpnRunning" class="traffic-numbers">
           <div class="traffic-number">
             <span class="traffic-arrow down" aria-hidden="true">↓</span>
             <strong>{{ speedLabel(trafficDown) }}</strong>
@@ -154,31 +183,44 @@ function speedLabel(bytes: number): string {
           </span>
         </div>
 
-        <div v-if="trafficSamples.length" class="traffic-chart">
-          <div
-            class="traffic-series down"
-            title="Загрузка: сколько данных приходит из туннеля в секунду"
-          >
-            <span class="series-name">Загрузка</span>
-            <Sparkline
-              :values="downSeries"
-              :max="trafficMax"
-              class="traffic-down"
-              style="height: 26px"
-            />
+        <div v-if="chartSamples.length" class="traffic-chart">
+          <div class="traffic-legend">
+            <span class="legend-item down">
+              <span class="legend-dot" aria-hidden="true"></span>Загрузка
+            </span>
+            <span class="legend-item up">
+              <span class="legend-dot" aria-hidden="true"></span>Отдача
+            </span>
           </div>
-          <div class="traffic-series up" title="Отдача: сколько данных уходит в туннель в секунду">
-            <span class="series-name">Отдача</span>
-            <Sparkline
-              :values="upSeries"
-              :max="trafficMax"
-              class="traffic-up"
-              style="height: 26px"
-            />
+          <div class="traffic-plot" @mousemove="onChartMove" @mouseleave="clearChartHover">
+            <Sparkline :series="chartSeries" :max="trafficMax" />
+            <span
+              v-if="hoverSample"
+              class="traffic-cursor"
+              :style="{ left: hoverExactLeft + '%' }"
+              aria-hidden="true"
+            ></span>
+            <div v-if="hoverSample" class="traffic-tip" :style="{ left: hoverTipLeft + '%' }">
+              <span>{{ hoverAgo }}</span>
+              <span
+                >Загрузка <strong>{{ speedLabel(hoverSample.down) }}</strong></span
+              >
+              <span
+                >Отдача <strong>{{ speedLabel(hoverSample.up) }}</strong></span
+              >
+            </div>
+          </div>
+          <div class="traffic-axis">
+            <span>{{ windowLabel }} назад</span>
+            <span>сейчас</span>
           </div>
         </div>
         <p v-else class="muted traffic-empty">
-          Ждём первый замер — данные обновляются каждые 2 секунды.
+          {{
+            vpnRunning
+              ? "Ждём первый замер — данные обновляются каждые 2 секунды."
+              : "Трафик появится, когда пойдёт через туннель."
+          }}
         </p>
       </div>
     </Card>
@@ -230,7 +272,7 @@ function speedLabel(bytes: number): string {
           <div class="power-icon telegram"><Send :size="19" /></div>
           <div class="power-heading">
             <CardTitle>Telegram</CardTitle>
-            <CardDescription>{{ telegramHint }}</CardDescription>
+            <CardDescription>{{ tgwsStatusText }}</CardDescription>
           </div>
           <Switch
             :model-value="tgwsRunning"
@@ -243,6 +285,14 @@ function speedLabel(bytes: number): string {
           <div class="power-meta">
             <span>Адрес</span>
             <strong>{{ telegramEndpoint }}</strong>
+          </div>
+          <div class="power-meta">
+            <span>Подключений</span>
+            <strong>{{ tgwsActiveConnections ?? "—" }}</strong>
+          </div>
+          <div class="power-meta">
+            <span>Последняя активность</span>
+            <strong>{{ tgwsLastActivityLabel }}</strong>
           </div>
           <Button
             class="power-action"
@@ -261,7 +311,7 @@ function speedLabel(bytes: number): string {
           <div class="power-icon telegram"><Zap :size="19" /></div>
           <div class="power-heading">
             <CardTitle>VPN</CardTitle>
-            <CardDescription>{{ vpnHint }}</CardDescription>
+            <CardDescription>{{ vpnStatusText }}</CardDescription>
           </div>
           <Switch
             :model-value="vpnRunning"

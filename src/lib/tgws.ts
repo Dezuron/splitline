@@ -73,3 +73,38 @@ export function isPublicBinding(host: string | undefined): boolean {
   const value = displayHost(host);
   return value !== "127.0.0.1" && value !== "::1" && value !== "localhost";
 }
+
+/** The two engines the proxy can run on. */
+export type TgwsEngine = "python" | "rs";
+
+/**
+ * What the user picks in "Дополнительно". The old build is the safe default;
+ * the new one is offered as a beta with its way back.
+ */
+export const TGWS_ENGINES: { value: TgwsEngine; label: string; note: string }[] = [
+  {
+    value: "python",
+    label: "Старый (проверенный)",
+    note: "Работает давно, но занимает больше памяти.",
+  },
+  {
+    value: "rs",
+    label: "Новый (beta, меньше памяти)",
+    note: "Лёгкий, но молодой — при сбоях можно вернуться.",
+  },
+];
+
+/** Anything unrecognised is the engine the app would actually run. */
+export function normalizeTgwsEngine(value: string | undefined | null): TgwsEngine {
+  const name = (value ?? "").trim().toLowerCase();
+  // `rust` is the backend's alias for the same engine.
+  return name === "rs" || name === "rust" ? "rs" : "python";
+}
+
+/** Short engine name for the diagnostics card. */
+export function tgwsEngineLabel(value: string | undefined | null): string {
+  return normalizeTgwsEngine(value) === "rs" ? "Новый (beta)" : "Старый";
+}
+
+/** Domains the engine tries in the given order; the backend caps the list. */
+export const MAX_CF_DOMAINS = 10;

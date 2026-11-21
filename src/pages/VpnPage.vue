@@ -25,6 +25,7 @@ import { formatBytes } from "../lib/labels";
 import {
   config,
   copyXrayLink,
+  formatAgo,
   installXrayCore,
   installXrayCoreFromFile,
   loadXrayProfiles,
@@ -51,10 +52,12 @@ import {
   updateXraySiteBases,
   xrayBusy,
   xrayError,
+  xrayLastTrafficAt,
   xrayLink,
   xrayLogs,
   xrayProfiles,
   xrayStatus,
+  vpnStatusText,
 } from "../store";
 
 const urlDraft = ref("");
@@ -70,25 +73,10 @@ const basesBusy = ref(false);
 const logsOpen = ref(false);
 const logBox = ref<HTMLElement | null>(null);
 
-const stateLabel = computed(() => {
-  switch (xrayStatus.value?.state) {
-    case "running":
-      return "VPN подключён";
-    case "starting":
-      return "Подключение…";
-    case "stopping":
-      return "Отключение…";
-    case "error":
-      return "Ошибка";
-    case "not_installed":
-      return "Ядро не установлено";
-    default:
-      return "VPN выключен";
-  }
-});
-
 const running = computed(() => xrayStatus.value?.state === "running");
 const telegramConnected = computed(() => (xrayStatus.value?.client_connections ?? 0) > 0);
+/** The last byte through the tunnel: "—" until traffic is confirmed. */
+const vpnLastActivityLabel = computed(() => formatAgo(xrayLastTrafficAt.value));
 /** Telegram keeps only one proxy at a time, so an active MTProto proxy wins over the VPN. */
 const telegramOnProxy = computed(() => tgwsRunning.value && !telegramConnected.value);
 const transitioning = computed(
@@ -395,7 +383,7 @@ function pingLabel(ms: number | null): string {
         <div class="vpn-hero-text">
           <span class="eyebrow">VPN</span>
           <CardTitle>Подписка</CardTitle>
-          <CardDescription>{{ stateLabel }}</CardDescription>
+          <CardDescription>{{ vpnStatusText }}</CardDescription>
         </div>
         <div class="vpn-hero-controls">
           <span
@@ -441,6 +429,10 @@ function pingLabel(ms: number | null): string {
           <div>
             <span>Пинг</span>
             <strong>{{ selectedPing }}</strong>
+          </div>
+          <div>
+            <span>Активность</span>
+            <strong>{{ vpnLastActivityLabel }}</strong>
           </div>
           <div v-if="xrayStatus?.subscription_total">
             <span>Подписка</span>

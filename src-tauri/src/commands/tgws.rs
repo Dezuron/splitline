@@ -7,6 +7,8 @@ use crate::tgws::{self, TgwsStatus, TgwsUpdateInfo};
 use crate::AppResult;
 use std::path::Path;
 
+use super::{command_set, CommandSet};
+
 #[tauri::command]
 pub fn get_tgws_status(app: tauri::AppHandle) -> AppResult<TgwsStatus> {
     Ok(tgws::status(&app))
@@ -56,8 +58,14 @@ pub fn get_tgws_logs(app: tauri::AppHandle) -> AppResult<Vec<String>> {
 }
 
 #[tauri::command]
-pub fn diagnose_tgws(app: tauri::AppHandle) -> AppResult<tgws::TgwsDiagnosis> {
-    Ok(tgws::diagnose(&app))
+pub async fn diagnose_tgws(app: tauri::AppHandle) -> AppResult<tgws::TgwsDiagnosis> {
+    // The new engine's self-check spawns a probe that talks to Telegram, so the
+    // whole diagnosis belongs on the blocking pool rather than on the UI thread.
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || tgws::diagnose(&app))
+            .await
+            .map_err(|e| e.to_string())?,
+    )
 }
 
 #[tauri::command]
@@ -96,11 +104,6 @@ pub fn dismiss_tgws_update(app: tauri::AppHandle, tag: String) -> AppResult<()> 
 }
 
 #[tauri::command]
-pub fn set_tgws_autostart(app: tauri::AppHandle, enabled: bool) -> AppResult<()> {
-    Ok(tgws::set_autostart(&app, enabled)?)
-}
-
-#[tauri::command]
 pub async fn set_tgws_host(app: tauri::AppHandle, host: String) -> AppResult<String> {
     let host = tgws::validate_host(&host)?;
     let saved = host.clone();
@@ -135,6 +138,62 @@ pub async fn set_tgws_secret(app: tauri::AppHandle, secret: String) -> AppResult
     Ok(saved)
 }
 
+/// Switches the proxy engine. Installing the new binary, stopping the old
+/// process and starting the new one all happen here, so the UI waits for the
+/// outcome instead of racing a background thread.
+#[tauri::command]
+pub async fn set_tgws_engine(app: tauri::AppHandle, engine: String) -> AppResult<String> {
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || tgws::set_engine(&app, &engine))
+            .await
+            .map_err(|e| e.to_string())??,
+    )
+}
+
+/// Saves the Cloudflare domain list. Order is priority order; ten at most.
+#[tauri::command]
+pub async fn set_tgws_domains(
+    app: tauri::AppHandle,
+    domains: Vec<String>,
+) -> AppResult<Vec<String>> {
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || tgws::set_domains(&app, &domains))
+            .await
+            .map_err(|e| e.to_string())??,
+    )
+}
+
+/// Saves the Cloudflare Worker domain; an empty string turns it off.
+#[tauri::command]
+pub async fn set_tgws_worker_domain(app: tauri::AppHandle, domain: String) -> AppResult<String> {
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || tgws::set_worker_domain(&app, &domain))
+            .await
+            .map_err(|e| e.to_string())??,
+    )
+}
+
+/// Turns round-robin over the domain list on or off.
+#[tauri::command]
+pub async fn set_tgws_balance(app: tauri::AppHandle, enabled: bool) -> AppResult<bool> {
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || tgws::set_balance(&app, enabled))
+            .await
+            .map_err(|e| e.to_string())??,
+    )
+}
+
+/// Inbound FakeTLS domain; an empty string turns the camouflage off and
+/// returns the link to the plain `dd` form.
+#[tauri::command]
+pub async fn set_tgws_fake_tls_domain(app: tauri::AppHandle, domain: String) -> AppResult<String> {
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || tgws::set_fake_tls_domain(&app, &domain))
+            .await
+            .map_err(|e| e.to_string())??,
+    )
+}
+
 #[tauri::command]
 pub fn open_tgws_log() -> AppResult<()> {
     let path = crate::config::tgws_log_path();
@@ -163,4 +222,35 @@ pub fn open_telegram_link(app: tauri::AppHandle, url: String) -> AppResult<()> {
 #[tauri::command]
 pub fn copy_to_clipboard(text: String) -> AppResult<()> {
     Ok(crate::sys::copy_to_clipboard(&text)?)
+}
+
+/// Telegram proxy page: supervisor, link, diagnostics and settings. There is no
+/// autostart command: the page toggles the proxy for the current session and
+/// the tray restores the last state on the next launch.
+pub fn tgws_commands() -> CommandSet {
+    command_set![
+        get_tgws_status,
+        start_tgws,
+        stop_tgws,
+        restart_tgws,
+        get_tgws_link,
+        regenerate_tgws_secret,
+        get_tgws_logs,
+        diagnose_tgws,
+        check_tgws_update,
+        install_tgws_update,
+        use_tgws_fallback_port,
+        dismiss_tgws_update,
+        set_tgws_host,
+        set_tgws_port,
+        set_tgws_secret,
+        set_tgws_engine,
+        set_tgws_domains,
+        set_tgws_worker_domain,
+        set_tgws_balance,
+        set_tgws_fake_tls_domain,
+        open_tgws_log,
+        open_telegram_link,
+        copy_to_clipboard,
+    ]
 }

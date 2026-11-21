@@ -48,7 +48,7 @@ function closeWindow() {
         <span>Есть обновление</span>
       </button>
 
-      <span class="status-chip" :class="statusTone">
+      <span class="status-chip" :class="statusTone" role="status" aria-live="polite">
         <span class="status-dot" :class="statusTone" aria-hidden="true"></span>
         <span>{{ statusText }}</span>
       </span>

@@ -627,3 +627,19 @@ fn spawn_watchdog(app: tauri::AppHandle, applied: String, previous: String) {
         }
     });
 }
+
+/// Strategy checks and their history. Listed here, not in `lib.rs`.
+pub fn benchmark_commands() -> CommandSet {
+    command_set![
+        run_bench,
+        run_search,
+        set_bench_auto_apply,
+        cancel_bench,
+        quick_check,
+        apply_candidate,
+        delete_generated,
+        delete_all_generated,
+        get_last_bench,
+        get_bench_history,
+    ]
+}

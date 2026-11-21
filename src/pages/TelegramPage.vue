@@ -22,9 +22,14 @@ import { formatBytes } from "../lib/labels";
 import {
   displayHost,
   isPublicBinding,
+  MAX_CF_DOMAINS,
+  normalizeTgwsEngine,
+  TGWS_ENGINES,
   tgwsEndpoint,
+  tgwsEngineLabel,
   tgwsTone,
   tgwsVersionLabel,
+  type TgwsEngine,
 } from "../lib/tgws";
 import {
   applyTgwsUpdate,
@@ -40,9 +45,14 @@ import {
   refreshTgws,
   regenerateTgwsSecret,
   restartTgws,
+  setTgwsBalance,
+  setTgwsDomains,
+  setTgwsEngine,
+  setTgwsFakeTlsDomain,
   setTgwsHost,
   setTgwsPort,
   setTgwsSecret,
+  setTgwsWorkerDomain,
   switchTgwsPort,
   tgwsBusy,
   tgwsChecking,
@@ -53,8 +63,11 @@ import {
   tgwsDiagnosing,
   tgwsProgress,
   tgwsRunning,
-  tgwsStateText,
+  tgwsActiveConnections,
+  tgwsActivity,
+  tgwsLastActivityLabel,
   tgwsStatus,
+  tgwsStatusText,
   tgwsUpdate,
   toggleTgws,
   xrayStatus,
@@ -63,6 +76,14 @@ import {
 const hostDraft = ref("");
 const portDraft = ref(1555);
 const secretDraft = ref("");
+const engineError = ref("");
+const domainDraft = ref("");
+const domainError = ref("");
+const domainsBusy = ref(false);
+const workerDraft = ref("");
+const workerError = ref("");
+const fakeTlsDraft = ref("");
+const fakeTlsError = ref("");
 const logsOpen = ref(false);
 const logBox = ref<HTMLElement | null>(null);
 const router = useRouter();
@@ -96,17 +117,116 @@ const transitioning = computed(
 const publicBinding = computed(() => isPublicBinding(config.value?.tgws.host));
 const logText = computed(() => tgwsLogs.value.join("\n"));
 
+/** Engine the backend actually runs; `python` when an older build does not say. */
+const engine = computed<TgwsEngine>(() =>
+  normalizeTgwsEngine(tgwsStatus.value?.engine ?? config.value?.tgws.engine),
+);
+
+/** R8: the new engine keeps failing, so the page offers the old one. */
+const needsFallback = computed(() => !!tgwsStatus.value?.fallback_recommended);
+
+/**
+ * Settings only the new engine understands. A build that does not report them
+ * leaves the block read-only instead of silently overwriting the config file.
+ */
+const engineSettingsKnown = computed(() => Array.isArray(config.value?.tgws.cf_domains));
+const fakeTlsKnown = computed(() => typeof config.value?.tgws.fake_tls_domain === "string");
+const cfDomains = computed(() => config.value?.tgws.cf_domains ?? []);
+const cfBalance = computed(() => config.value?.tgws.cf_balance ?? false);
+const canAddDomain = computed(
+  () => engineSettingsKnown.value && cfDomains.value.length < MAX_CF_DOMAINS,
+);
+const fakeTlsOn = computed(() => fakeTlsDraft.value.trim().length > 0);
+
+/** Switches the engine; the backend installs the binary and restarts the proxy. */
+async function chooseEngine(next: TgwsEngine) {
+  if (next === engine.value || tgwsBusy.value) return;
+  engineError.value = "";
+  try {
+    await setTgwsEngine(next);
+  } catch (error) {
+    engineError.value = String(error);
+  }
+}
+
+/**
+ * Saves the whole list, because the backend keeps it as one ordered setting.
+ * A failure keeps the typed text: the toast and the line under the list say why.
+ */
+async function saveDomains(next: string[]): Promise<boolean> {
+  domainError.value = "";
+  domainsBusy.value = true;
+  try {
+    await setTgwsDomains(next);
+    return true;
+  } catch (error) {
+    domainError.value = String(error);
+    return false;
+  } finally {
+    domainsBusy.value = false;
+  }
+}
+
+async function addDomain() {
+  const value = domainDraft.value.trim();
+  if (!value || !canAddDomain.value) return;
+  if (await saveDomains([...cfDomains.value, value])) domainDraft.value = "";
+}
+
+async function removeDomain(domain: string) {
+  await saveDomains(cfDomains.value.filter((item) => item !== domain));
+}
+
+async function toggleBalance(enabled: boolean) {
+  if (!engineSettingsKnown.value) return;
+  domainError.value = "";
+  try {
+    await setTgwsBalance(enabled);
+  } catch (error) {
+    domainError.value = String(error);
+  }
+}
+
+async function commitWorker() {
+  const saved = config.value?.tgws.cf_worker_domain ?? "";
+  const value = workerDraft.value.trim();
+  if (value === saved.trim()) return;
+  workerError.value = "";
+  try {
+    workerDraft.value = await setTgwsWorkerDomain(value);
+  } catch (error) {
+    workerError.value = String(error);
+  }
+}
+
+/** Clears the field and saves right away: an empty domain turns FakeTLS off. */
+async function clearFakeTls() {
+  fakeTlsDraft.value = "";
+  await commitFakeTls();
+}
+
+/** FakeTLS changes the link format, so the backend restarts the proxy here. */
+async function commitFakeTls() {
+  const saved = config.value?.tgws.fake_tls_domain ?? "";
+  const value = fakeTlsDraft.value.trim();
+  if (value === saved.trim()) return;
+  fakeTlsError.value = "";
+  try {
+    fakeTlsDraft.value = await setTgwsFakeTlsDomain(value);
+  } catch (error) {
+    fakeTlsError.value = String(error);
+  }
+}
+
 /** Telegram keeps one proxy at a time: an active VPN tunnel wins over MTProto. */
 const telegramOnVpn = computed(
   () =>
     xrayStatus.value?.state === "running" &&
     (xrayStatus.value?.client_connections ?? 0) > 0 &&
-    (tgwsStatus.value?.client_connections_total ?? 0) === 0,
+    tgwsActivity.value === "idle",
 );
 /** The proxy is on, but Telegram has not connected to it yet. */
-const telegramNeedsProxy = computed(
-  () => tgwsRunning.value && (tgwsStatus.value?.client_connections_total ?? 0) === 0,
-);
+const telegramNeedsProxy = computed(() => tgwsRunning.value && tgwsActivity.value === "idle");
 
 /** Starts the proxy if needed and hands Telegram the `tg://` link. */
 async function switchTelegramToProxy() {
@@ -123,6 +243,8 @@ watch(
     hostDraft.value = tgws.host;
     portDraft.value = tgws.port;
     secretDraft.value = tgws.secret;
+    if (typeof tgws.cf_worker_domain === "string") workerDraft.value = tgws.cf_worker_domain;
+    if (typeof tgws.fake_tls_domain === "string") fakeTlsDraft.value = tgws.fake_tls_domain;
   },
   { immediate: true, deep: true },
 );
@@ -177,7 +299,7 @@ async function commitSecret() {
         <div class="tgws-hero-text">
           <span class="eyebrow">Telegram</span>
           <CardTitle>WS-прокси</CardTitle>
-          <CardDescription>{{ tgwsStateText }}</CardDescription>
+          <CardDescription>{{ tgwsStatusText }}</CardDescription>
         </div>
         <div class="tgws-hero-controls">
           <span class="tgws-dot" :class="`is-${tone}`" aria-hidden="true"></span>
@@ -203,9 +325,36 @@ async function commitSecret() {
             <span>PID</span>
             <strong>{{ tgwsStatus?.pid ?? "—" }}</strong>
           </div>
+          <div>
+            <span>Подключений</span>
+            <strong>{{ tgwsActiveConnections ?? "—" }}</strong>
+          </div>
+          <div>
+            <span>Активность</span>
+            <strong>{{ tgwsLastActivityLabel }}</strong>
+          </div>
         </div>
 
         <div class="tgws-actions">
+          <Button
+            v-if="tgwsRunning"
+            size="sm"
+            :disabled="!tgwsLink || transitioning"
+            @click="openTgwsInTelegram"
+          >
+            <ExternalLink :size="14" />
+            Открыть в Telegram
+          </Button>
+          <Button
+            v-if="tgwsRunning"
+            variant="outline"
+            size="sm"
+            :disabled="!tgwsLink"
+            @click="copyTgwsLink"
+          >
+            <Copy :size="14" />
+            Скопировать ссылку
+          </Button>
           <Button
             variant="secondary"
             size="sm"
@@ -249,6 +398,20 @@ async function commitSecret() {
               Занять свободный порт
             </Button>
           </div>
+        </div>
+
+        <div v-if="needsFallback" class="tgws-prompt is-danger">
+          <div class="tgws-prompt-icon"><AlertTriangle :size="18" /></div>
+          <div class="tgws-prompt-text">
+            <strong>Новый движок не запускается</strong>
+            <span>
+              Вернитесь на старый — ключ и ссылка останутся прежними, добавлять прокси в Telegram
+              заново не нужно.
+            </span>
+          </div>
+          <Button size="sm" :disabled="tgwsBusy || transitioning" @click="chooseEngine('python')">
+            Вернуться на старый
+          </Button>
         </div>
 
         <div v-if="telegramOnVpn" class="tgws-prompt">
@@ -300,6 +463,9 @@ async function commitSecret() {
         </div>
       </CardHeader>
       <CardContent class="tgws-diag-body">
+        <p class="diag-note">
+          Движок: <strong>{{ tgwsEngineLabel(tgwsDiagnosis.engine) }}</strong>
+        </p>
         <div class="diag-list">
           <div class="diag-row" :class="{ bad: !tgwsDiagnosis.binary }">
             <span aria-hidden="true">{{ tgwsDiagnosis.binary ? "✓" : "✗" }}</span>
@@ -312,6 +478,19 @@ async function commitSecret() {
           <div class="diag-row" :class="{ bad: !tgwsDiagnosis.port_open }">
             <span aria-hidden="true">{{ tgwsDiagnosis.port_open ? "✓" : "✗" }}</span>
             Порт слушается
+          </div>
+          <div
+            v-if="tgwsDiagnosis.listener"
+            class="diag-row"
+            :class="{
+              bad: tgwsDiagnosis.listener.ran && !tgwsDiagnosis.listener.ok,
+              'is-neutral': !tgwsDiagnosis.listener.ran,
+            }"
+          >
+            <span aria-hidden="true">
+              {{ tgwsDiagnosis.listener.ran ? (tgwsDiagnosis.listener.ok ? "✓" : "✗") : "–" }}
+            </span>
+            Проверка слушателя
           </div>
           <div class="diag-row" :class="{ bad: tgwsDiagnosis.log_errors > 0 }">
             <span aria-hidden="true">{{ tgwsDiagnosis.log_errors > 0 ? "✗" : "✓" }}</span>
@@ -330,6 +509,21 @@ async function commitSecret() {
         </div>
 
         <p class="diag-hint" :class="`is-${tgwsDiagnosis.kind}`">{{ tgwsDiagnosis.hint }}</p>
+
+        <p v-if="tgwsDiagnosis.last_error_line" class="diag-note">
+          Последняя ошибка в логе:
+          <span class="tgws-mono">{{ tgwsDiagnosis.last_error_line }}</span>
+        </p>
+
+        <template v-if="tgwsDiagnosis.listener">
+          <p class="diag-note">{{ tgwsDiagnosis.listener.summary }}</p>
+          <p
+            v-if="tgwsDiagnosis.listener.detail && !tgwsDiagnosis.listener.ok"
+            class="diag-note tgws-mono"
+          >
+            {{ tgwsDiagnosis.listener.detail }}
+          </p>
+        </template>
 
         <div class="tgws-actions">
           <Button
@@ -350,7 +544,7 @@ async function commitSecret() {
             Перезапустить
           </Button>
           <Button
-            v-if="['binary', 'blocked', 'unknown'].includes(tgwsDiagnosis.kind)"
+            v-if="['binary', 'blocked'].includes(tgwsDiagnosis.kind)"
             variant="secondary"
             size="sm"
             :disabled="tgwsBusy"
@@ -460,9 +654,177 @@ async function commitSecret() {
       <details class="tgws-advanced">
         <summary>
           <span>Дополнительно</span>
-          <span class="muted">Хост, порт, ключ и логи</span>
+          <span class="muted">Движок, домены, ключ и логи</span>
         </summary>
         <div class="tgws-advanced-body">
+          <div class="tgws-section">
+            <div class="tgws-section-head">
+              <span class="field-label">Движок прокси</span>
+              <span class="muted">{{
+                engine === "rs" ? "Новый, лёгкий — beta" : "Старый, проверенный"
+              }}</span>
+            </div>
+            <div class="tgws-choice" role="radiogroup" aria-label="Движок прокси">
+              <button
+                v-for="option in TGWS_ENGINES"
+                :key="option.value"
+                type="button"
+                role="radio"
+                class="tgws-choice-option"
+                :class="{ 'is-active': engine === option.value }"
+                :aria-checked="engine === option.value"
+                :disabled="tgwsBusy || transitioning"
+                @click="chooseEngine(option.value)"
+              >
+                <strong>{{ option.label }}</strong>
+                <span>{{ option.note }}</span>
+              </button>
+            </div>
+            <p class="tgws-warning">
+              <AlertTriangle :size="14" />
+              <span>
+                Переключение перезапустит прокси на несколько секунд. Ключ и ссылка не меняются,
+                поэтому прокси в Telegram добавлять заново не придётся.
+              </span>
+            </p>
+            <p v-if="engine === 'rs' && !tgwsStatus?.rust_binary_present" class="tgws-hint">
+              Новый движок скачается при переключении — один раз, несколько мегабайт.
+            </p>
+            <div v-if="engineError" class="tgws-error">
+              <AlertTriangle :size="14" />
+              <span>{{ engineError }}</span>
+            </div>
+          </div>
+
+          <div class="tgws-section">
+            <div class="tgws-section-head">
+              <span class="field-label">Домены Cloudflare</span>
+              <span v-if="engineSettingsKnown" class="muted">
+                {{ cfDomains.length }} из {{ MAX_CF_DOMAINS }}
+              </span>
+            </div>
+            <p v-if="!engineSettingsKnown" class="tgws-hint">
+              Не удалось прочитать список доменов — обновите приложение.
+            </p>
+            <template v-else>
+              <div v-if="cfDomains.length" class="tgws-chips">
+                <span v-for="domain in cfDomains" :key="domain" class="tgws-chip">
+                  {{ domain }}
+                  <button
+                    type="button"
+                    class="tgws-chip-remove"
+                    :disabled="domainsBusy"
+                    :aria-label="`Убрать ${domain}`"
+                    @click="removeDomain(domain)"
+                  >
+                    ×
+                  </button>
+                </span>
+              </div>
+              <div class="tgws-domain-row">
+                <input
+                  v-model="domainDraft"
+                  class="tgws-input tgws-mono"
+                  spellcheck="false"
+                  placeholder="example.com"
+                  @keydown.enter="addDomain"
+                />
+                <Button
+                  size="sm"
+                  :disabled="domainsBusy || !canAddDomain || !domainDraft.trim()"
+                  @click="addDomain"
+                >
+                  Добавить
+                </Button>
+              </div>
+              <p v-if="domainError" class="tgws-error">
+                <AlertTriangle :size="14" />
+                <span>{{ domainError }}</span>
+              </p>
+              <p class="tgws-hint">
+                <template v-if="engine === 'python'">
+                  Старый движок берёт только первый домен списка.
+                </template>
+                <template v-else>Новый движок пробует домены в этом порядке.</template>
+              </p>
+
+              <div class="tgws-balance">
+                <Switch
+                  :model-value="cfBalance"
+                  :disabled="domainsBusy"
+                  aria-label="Балансировать между доменами"
+                  @update:model-value="toggleBalance"
+                />
+                <span>
+                  <strong>Балансировать</strong>
+                  <span class="muted">Начинать с разных доменов, а не всегда с первого.</span>
+                </span>
+              </div>
+
+              <label class="field">
+                <span class="field-label">Worker-домен</span>
+                <input
+                  v-model="workerDraft"
+                  class="tgws-input tgws-mono"
+                  spellcheck="false"
+                  placeholder="my-worker.workers.dev"
+                  @change="commitWorker"
+                  @keydown.enter="commitWorker"
+                />
+              </label>
+              <p v-if="workerError" class="tgws-error">
+                <AlertTriangle :size="14" />
+                <span>{{ workerError }}</span>
+              </p>
+              <p v-else class="tgws-hint">
+                Необязательно: запасной путь через Cloudflare Worker, если прокси не отвечает
+                напрямую.
+              </p>
+            </template>
+          </div>
+
+          <div class="tgws-section">
+            <div class="tgws-section-head">
+              <span class="field-label">FakeTLS-домен</span>
+              <span class="muted">маскировка под обычный сайт</span>
+            </div>
+            <p v-if="!fakeTlsKnown" class="tgws-hint">
+              Не удалось прочитать настройку — обновите приложение.
+            </p>
+            <template v-else>
+              <div class="tgws-domain-row">
+                <input
+                  v-model="fakeTlsDraft"
+                  class="tgws-input tgws-mono"
+                  spellcheck="false"
+                  placeholder="www.cloudflare.com"
+                  @change="commitFakeTls"
+                  @keydown.enter="commitFakeTls"
+                />
+                <Button
+                  v-if="fakeTlsOn"
+                  variant="ghost"
+                  size="sm"
+                  :disabled="tgwsBusy"
+                  @click="clearFakeTls"
+                >
+                  Выключить
+                </Button>
+              </div>
+              <p v-if="fakeTlsError" class="tgws-error">
+                <AlertTriangle :size="14" />
+                <span>{{ fakeTlsError }}</span>
+              </p>
+              <p class="tgws-warning">
+                <AlertTriangle :size="14" />
+                <span>
+                  Ссылка станет вида <code>ee…</code>. Старая ссылка в Telegram перестанет
+                  подключаться — замените её на новую.
+                </span>
+              </p>
+            </template>
+          </div>
+
           <div class="tgws-fields">
             <label class="field">
               <span class="field-label">Хост</span>
@@ -501,8 +863,7 @@ async function commitSecret() {
 
             <p class="tgws-hint field-wide">
               Прокси включится при следующем запуске, если был включён при выходе. Остальные флаги
-              (DC-адреса, буфер, пул, Cloudflare) — в секции <code>tgws</code> файла
-              <code>config.json</code>.
+              (DC-адреса, буфер, пул) — в секции <code>tgws</code> файла <code>config.json</code>.
             </p>
 
             <p v-if="publicBinding" class="tgws-warning field-wide">
@@ -652,7 +1013,7 @@ async function commitSecret() {
 
 .tgws-meta {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 8px;
 }
 
@@ -717,6 +1078,10 @@ async function commitSecret() {
 
 .diag-row.bad > span:first-child {
   color: var(--danger);
+}
+
+.diag-row.is-neutral > span:first-child {
+  color: var(--text-3);
 }
 
 .diag-hint {
@@ -785,6 +1150,192 @@ async function commitSecret() {
   border: 1px solid color-mix(in oklab, var(--warn) 40%, transparent);
   background: var(--warn-soft);
   color: var(--warn);
+}
+
+.tgws-warning code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+/* Engine failure: louder than a warning, because the proxy does not start. */
+.tgws-prompt.is-danger {
+  border-color: color-mix(in oklab, var(--danger) 45%, transparent);
+  background: var(--danger-soft);
+}
+
+.tgws-prompt.is-danger .tgws-prompt-icon {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* One settings group inside "Дополнительно": title, controls, hint. */
+.tgws-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.tgws-section:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.tgws-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tgws-section-head .muted {
+  font-size: 11.5px;
+}
+
+/* Two engines side by side: one tap switches, nothing is hidden in a menu. */
+.tgws-choice {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.tgws-choice-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--secondary);
+  color: var(--text-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tgws-choice-option strong {
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.tgws-choice-option span {
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.tgws-choice-option:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+.tgws-choice-option.is-active {
+  border-color: var(--primary);
+  background: var(--accent-soft);
+}
+
+.tgws-choice-option.is-active span {
+  color: var(--text-2);
+}
+
+.tgws-choice-option:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.tgws-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tgws-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.tgws-chip-remove {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tgws-chip-remove:hover:not(:disabled) {
+  background: var(--muted);
+  color: var(--text);
+}
+
+.tgws-chip-remove:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.tgws-domain-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tgws-domain-row .tgws-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tgws-balance {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--muted);
+}
+
+.tgws-balance > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.tgws-balance strong {
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.tgws-balance .muted {
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.diag-note {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.diag-note strong {
+  color: var(--text-2);
+  font-weight: 600;
 }
 
 .tgws-update-content {
@@ -1008,6 +1559,14 @@ async function commitSecret() {
   }
 
   .tgws-link-row {
+    flex-wrap: wrap;
+  }
+
+  .tgws-domain-row {
+    flex-wrap: wrap;
+  }
+
+  .tgws-prompt {
     flex-wrap: wrap;
   }
 }
