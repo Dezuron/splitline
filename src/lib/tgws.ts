@@ -90,7 +90,7 @@ export const TGWS_ENGINES: { value: TgwsEngine; label: string; note: string }[] 
   {
     value: "rs",
     label: "Новый (beta, меньше памяти)",
-    note: "Лёгкий, но молодой — при сбоях можно вернуться.",
+    note: "Лёгкий и бесплатный, без подписки. Молодой — при сбоях можно вернуться.",
   },
 ];
 
