@@ -223,6 +223,20 @@ export const vpnStatusText = computed(() => {
   }
 });
 
+export const zapretStatusText = computed(() => {
+  if (!status.value) return "Загрузка…";
+  if (benchRunning.value) return "Идёт проверка стратегий";
+  if (!runtimeReady.value) return "flowseal-zapret не установлен";
+  return running.value ? "Обход включён" : "Обход выключен";
+});
+
+/** The Zapret page's dot only reacts to the bypass, never to Telegram or VPN. */
+export const zapretTone = computed<"ok" | "idle" | "danger">(() => {
+  if (!status.value || benchRunning.value) return "idle";
+  if (!runtimeReady.value) return "danger";
+  return running.value ? "ok" : "idle";
+});
+
 export interface ServiceStatus {
   name: string;
   on: boolean;

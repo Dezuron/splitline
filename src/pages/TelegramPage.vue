@@ -503,7 +503,7 @@ async function commitSecret() {
           <div class="tgws-hero-title">
             <CardTitle>WS-прокси</CardTitle>
             <span
-              class="tgws-free-badge"
+              class="free-badge"
               role="note"
               title="Бесплатный прокси: движок rs и встроенный список Cloudflare-доменов Flowseal"
               aria-label="Бесплатный прокси: движок rs и встроенный список Cloudflare-доменов Flowseal"
@@ -1523,21 +1523,6 @@ async function commitSecret() {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-}
-
-/* Free is the point of this proxy: a quiet green mark, not a call to action. */
-.tgws-free-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 7px;
-  border: 1px solid color-mix(in oklab, var(--ok) 35%, transparent);
-  border-radius: 999px;
-  background: var(--ok-soft);
-  color: var(--ok);
-  font-size: var(--fs-caption);
-  font-weight: 500;
-  white-space: nowrap;
 }
 
 .tgws-hero-controls {
