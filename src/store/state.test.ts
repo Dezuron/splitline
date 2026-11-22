@@ -3,6 +3,7 @@ import type { AppStatus, TgwsStatus, XrayStatus } from "../types";
 import {
   activeRow,
   activeServiceCount,
+  benchRunning,
   formatAgo,
   generatedRows,
   isRecentlyActive,
@@ -27,6 +28,8 @@ import {
   wizardDismissed,
   xrayLastTrafficAt,
   xrayStatus,
+  zapretStatusText,
+  zapretTone,
 } from "./state";
 
 const NOW_SEC = () => Math.floor(Date.now() / 1000);
@@ -255,6 +258,30 @@ describe("store state", () => {
 
     xrayStatus.value = makeXray({ state: "error" });
     expect(vpnStatusText.value).toBe("Ошибка");
+  });
+
+  it("describes the Zapret page by the bypass alone", () => {
+    status.value = makeStatus();
+    expect(runtimeReady.value).toBe(false);
+    expect(zapretStatusText.value).toBe("flowseal-zapret не установлен");
+    expect(zapretTone.value).toBe("danger");
+
+    status.value = makeStatus({ runtime_valid: true });
+    expect(zapretStatusText.value).toBe("Обход выключен");
+    expect(zapretTone.value).toBe("idle");
+
+    status.value = makeStatus({ runtime_valid: true, running: true });
+    expect(zapretStatusText.value).toBe("Обход включён");
+    expect(zapretTone.value).toBe("ok");
+
+    benchRunning.value = true;
+    expect(zapretStatusText.value).toBe("Идёт проверка стратегий");
+    expect(zapretTone.value).toBe("idle");
+    benchRunning.value = false;
+
+    status.value = null;
+    expect(zapretStatusText.value).toBe("Загрузка…");
+    expect(zapretTone.value).toBe("idle");
   });
 
   it("counts only confirmed services as active", () => {
