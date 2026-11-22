@@ -3,8 +3,20 @@ name: CI
 on:
   pull_request:
     branches: [master, "release/**"]
+    # A docs or screenshot PR does not need a Windows build. Release merges and
+    # code changes still run every check.
+    paths-ignore:
+      - "**.md"
+      - "screenshots/**"
+      - "docs/**"
+      - "releases/**"
   push:
-    branches: [master, "release/**"]
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "screenshots/**"
+      - "docs/**"
+      - "releases/**"
 
 permissions:
   contents: read

@@ -21,6 +21,7 @@
     "format": "prettier --write \"src/**/*.{ts,vue,css}\" \"*.{json,js,ts}\"",
     "format:check": "prettier --check \"src/**/*.{ts,vue,css}\" \"*.{json,js,ts}\"",
     "check:version": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-version.ps1",
+    "shot": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/shot.ps1",
     "security": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/audit.ps1",
     "tauri": "tauri"
   },

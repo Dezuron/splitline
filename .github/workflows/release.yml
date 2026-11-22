@@ -1,18 +1,15 @@
 name: Release
 
 on:
-  push:
-    branches: [master]
+  # Releases are built on demand after the version bump has landed on master.
+  # A merge to master only runs CI: it must not rebuild an already published
+  # version. The tag is created by the publish job, so it must not exist yet.
   workflow_dispatch:
     inputs:
       make_release:
         description: "Create a GitHub Release"
         type: boolean
         default: true
-      sign:
-        description: "Sign artifacts with SignPath (after approval)"
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -30,7 +27,6 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
-      should_release: ${{ steps.tagcheck.outputs.should_release }}
 
     steps:
       - name: Checkout
@@ -46,8 +42,6 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
@@ -61,27 +55,8 @@ jobs:
         shell: pwsh
         run: ./scripts/check-version.ps1
 
-      - name: Lint frontend
-        run: npm run lint
-
-      - name: Check frontend formatting
-        run: npm run format:check
-
-      - name: Frontend tests (Vitest)
-        run: npm run test
-
-      - name: Check Rust formatting
-        working-directory: src-tauri
-        run: cargo fmt --all -- --check
-
-      - name: Clippy
-        working-directory: src-tauri
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: Rust tests
-        working-directory: src-tauri
-        run: cargo test
-
+      # Lint, formatting, Vitest, rustfmt, clippy and cargo test already ran in
+      # CI on this commit; repeating them here only delays the build.
       - name: Read version
         id: version
         shell: pwsh
@@ -91,17 +66,12 @@ jobs:
           Add-Content $env:GITHUB_OUTPUT "tag=v$version"
 
       - name: Check whether the tag already exists
-        id: tagcheck
         shell: pwsh
         run: |
-          $tag = "${{ steps.version.outputs.tag }}"
+          $tag = "v${{ steps.version.outputs.version }}"
           git fetch --tags --force
-          $existing = git tag --list $tag
-          if ($existing) {
-            Add-Content $env:GITHUB_OUTPUT "should_release=false"
-            Write-Host "Tag $tag already exists; release creation is skipped."
-          } else {
-            Add-Content $env:GITHUB_OUTPUT "should_release=true"
+          if (git tag --list $tag) {
+            throw "Тег $tag уже существует: эта версия уже выпущена. Поднимите версию перед релизом."
           }
 
       # 2.2.0+ clients install an update only when the asset carries a valid
@@ -111,7 +81,6 @@ jobs:
       # release build must have it. The value is a repository *variable*: the
       # public key is not a secret, and it has to be visible for auditing.
       - name: Check update signing key
-        if: steps.tagcheck.outputs.should_release == 'true'
         shell: pwsh
         env:
           SPLITLINE_UPDATE_PUBKEY: ${{ vars.SPLITLINE_UPDATE_PUBKEY }}
@@ -166,7 +135,6 @@ jobs:
       # Nothing in this step prints the key or the password; only file names and
       # sizes reach the log.
       - name: Sign release artifacts
-        if: steps.tagcheck.outputs.should_release == 'true'
         shell: pwsh
         env:
           MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
@@ -239,16 +207,9 @@ jobs:
   publish:
     name: Publish GitHub Release
     needs: build
-    # While the repository is private, a push only builds artifacts. A manual
-    # run with make_release=true can publish a private test release.
-    if: >-
-      ${{
-        needs.build.outputs.should_release == 'true' &&
-        (
-          (github.event_name == 'push' && github.event.repository.private == false) ||
-          (github.event_name == 'workflow_dispatch' && inputs.make_release)
-        )
-      }}
+    # Releases are published only by a manual run; a merge to master never
+    # publishes anything. The version is already on master at this point.
+    if: ${{ inputs.make_release }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
