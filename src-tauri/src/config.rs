@@ -6,6 +6,11 @@ pub const APP_DIR_NAME: &str = "zapret-ui";
 pub const CONFIG_FILE: &str = "config.json";
 pub const RUNTIME_DIR_NAME: &str = "runtime";
 
+/// Data folder override for the screenshot profile (`scripts/shot.ps1`).
+/// Release builds never set it: the dev instance points at its own copy of the
+/// config while the portable app keeps running next to it.
+pub const APP_DIR_ENV: &str = "SPLITLINE_APP_DIR";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum GameFilter {
@@ -279,7 +284,21 @@ impl Default for AppConfig {
 
 pub fn app_dir() -> PathBuf {
     let base = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-    base.join(APP_DIR_NAME)
+    // The override exists for `scripts/shot.ps1` only. Release builds keep the
+    // documented `%LOCALAPPDATA%\zapret-ui` folder no matter the environment.
+    #[cfg(debug_assertions)]
+    let override_dir = std::env::var_os(APP_DIR_ENV).map(PathBuf::from);
+    #[cfg(not(debug_assertions))]
+    let override_dir = None;
+    resolve_app_dir(base, override_dir)
+}
+
+/// `base/zapret-ui` by default; an explicitly set folder wins as-is.
+fn resolve_app_dir(base: PathBuf, override_dir: Option<PathBuf>) -> PathBuf {
+    match override_dir {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        _ => base.join(APP_DIR_NAME),
+    }
 }
 
 pub fn config_path() -> PathBuf {
@@ -474,6 +493,20 @@ mod tests {
             let json = serde_json::to_string(&cfg).expect("serialize");
             assert_eq!(parse_config(&json).expect("parse").theme, "carmine");
         }
+    }
+
+    #[test]
+    fn screenshot_profile_can_point_at_its_own_app_dir() {
+        let base = PathBuf::from(r"C:\base");
+        assert_eq!(resolve_app_dir(base.clone(), None), base.join(APP_DIR_NAME));
+        assert_eq!(
+            resolve_app_dir(base.clone(), Some(PathBuf::new())),
+            base.join(APP_DIR_NAME)
+        );
+        assert_eq!(
+            resolve_app_dir(base, Some(PathBuf::from(r"C:\shot"))),
+            PathBuf::from(r"C:\shot")
+        );
     }
 
     #[test]
