@@ -15,6 +15,7 @@ mod runtime;
 mod signing;
 mod strategy;
 mod subscription;
+mod supervisor;
 mod sys;
 mod tgws;
 mod tray;
