@@ -12,6 +12,7 @@ use crate::config;
 use crate::geo;
 use crate::lock_config;
 use crate::registry;
+use crate::supervisor::{RestartDecision, RestartPolicy, RESTART_DELAYS_SECS};
 use crate::sys;
 use crate::AppState;
 use serde::{Deserialize, Serialize};
@@ -22,7 +23,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
@@ -49,6 +50,9 @@ const BASE_SOURCES: &[(&str, &str)] = &[
 const LOG_LINES: usize = 300;
 const LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
 const START_GRACE: Duration = Duration::from_millis(900);
+/// How many times the core is started before the failure is reported. The
+/// second attempt exists only for a port lost between the probe and `listen`.
+const START_ATTEMPTS: u8 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -96,11 +100,16 @@ pub struct TrafficStats {
     pub down: u64,
 }
 
-/// Port of the local Stats API inbound; a provider config may already use it.
-static STATS_PORT: AtomicU16 = AtomicU16::new(10085);
+/// Port of the local Stats API inbound. Chosen from the OS on every start and
+/// `0` until then: a fixed number can fall inside a range Windows reserved for
+/// Hyper-V, Docker or WSL, and the core then dies on `bind` with `WSAEACCES`.
+static STATS_PORT: AtomicU16 = AtomicU16::new(0);
 
-/// One proxy guard thread at a time.
-static PROXY_GUARD: AtomicBool = AtomicBool::new(false);
+/// Generation of the proxy guard: every start bumps it, and a guard thread
+/// whose number no longer matches retires. Without it a guard that was asleep
+/// during a restart woke up, saw a newer flag and kept working next to the new
+/// one, so either could switch the other off on exit.
+static PROXY_GUARD: AtomicU64 = AtomicU64::new(0);
 
 /// One entry of the subscription, as shown in the UI.
 #[derive(Debug, Clone, Serialize)]
@@ -123,6 +132,13 @@ pub struct Xray {
     /// Last downloaded subscription; kept in memory and on disk so the UI works
     /// before (and without) a fresh fetch.
     profiles: Mutex<Vec<Value>>,
+    /// The user wants the tunnel up. An unexpected exit is only restarted while
+    /// this is set; a manual stop clears it.
+    desired: AtomicBool,
+    /// One recovery loop at a time: the watcher can notice the same exit twice.
+    recovering: AtomicBool,
+    /// Restart budget of the current episode, shared with its recovery loop.
+    restarts: Mutex<RestartPolicy>,
 }
 
 impl Default for Xray {
@@ -158,6 +174,9 @@ impl Xray {
             logs: Mutex::new(VecDeque::new()),
             op: Mutex::new(()),
             profiles: Mutex::new(Vec::new()),
+            desired: AtomicBool::new(false),
+            recovering: AtomicBool::new(false),
+            restarts: Mutex::new(RestartPolicy::new()),
         }
     }
 }
@@ -288,6 +307,10 @@ pub fn traffic(app: &AppHandle) -> Result<TrafficStats, String> {
         return Ok(TrafficStats::default());
     }
     let port = STATS_PORT.load(Ordering::Relaxed);
+    if port == 0 {
+        // Nothing has been started yet: there is no API to ask.
+        return Ok(TrafficStats::default());
+    }
     let output = Command::new(binary_path())
         .args(["api", "statsquery", &format!("--server=127.0.0.1:{port}")])
         .creation_flags(crate::sys::CREATE_NO_WINDOW)
@@ -1382,6 +1405,41 @@ fn direct_tag(value: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Ports the config already listens on, so the Stats API never takes one of them.
+fn stats_reserved_ports(value: &Value) -> Vec<u16> {
+    value
+        .get("inbounds")
+        .and_then(Value::as_array)
+        .map(|inbounds| {
+            inbounds
+                .iter()
+                .filter_map(|inbound| inbound.get("port").and_then(Value::as_u64))
+                .filter_map(|port| u16::try_from(port).ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A free loopback port for the local Stats API.
+///
+/// The number comes from the OS, not from this code: Windows reserves whole port
+/// ranges for Hyper-V, Docker and WSL (`netsh interface ipv4 show
+/// excludedportrange`), and a listener inside such a range fails with
+/// `WSAEACCES` — that is what killed the core right after start. An ephemeral
+/// bind never lands there, and the probe also rules out a number that another
+/// application is already listening on.
+fn pick_stats_port(reserved: &[u16]) -> Option<u16> {
+    for _ in 0..8 {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).ok()?;
+        let port = listener.local_addr().ok()?.port();
+        drop(listener);
+        if port >= 1024 && !reserved.contains(&port) {
+            return Some(port);
+        }
+    }
+    None
+}
+
 fn write_config(app: &AppHandle, index: usize) -> Result<PathBuf, String> {
     let list = ensure_profiles(app)?;
     let cfg = list
@@ -1420,16 +1478,13 @@ fn write_config(app: &AppHandle, index: usize) -> Result<PathBuf, String> {
         );
     }
 
-    // Stats API: live counters for the UI. The provider may already define an
-    // `api` inbound or use the default port, so both are detected and relocated.
-    let mut stats_port = 10085u16;
-    if let Some(inbounds) = value.get("inbounds").and_then(Value::as_array) {
-        while inbounds.iter().any(|inbound| {
-            inbound.get("port").and_then(Value::as_u64) == Some(u64::from(stats_port))
-        }) {
-            stats_port += 1;
-        }
-    }
+    // Stats API: live counters for the UI. The port is taken from the OS on
+    // every start, because a fixed number can sit inside a range Windows has
+    // reserved for Hyper-V/Docker/WSL and the core then cannot bind at all.
+    let reserved = stats_reserved_ports(&value);
+    let Some(stats_port) = pick_stats_port(&reserved) else {
+        return Err("Не удалось подобрать свободный порт для служебного API статистики.".into());
+    };
     value["stats"] = json!({});
     if !value.get("policy").map(Value::is_object).unwrap_or(false) {
         value["policy"] = json!({});
@@ -1556,8 +1611,45 @@ fn log_tail(app: &AppHandle, count: usize) -> String {
 
 // ---------- process ----------
 
-fn port_available(port: u16) -> bool {
-    std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+/// What happened to a loopback port when we tried to take it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PortState {
+    Free,
+    /// Another socket holds it.
+    Busy,
+    /// Windows does not allow the bind at all: the port sits inside a range
+    /// reserved for Hyper-V, Docker or WSL (`WSAEACCES`, 10013).
+    Reserved,
+}
+
+fn port_state(port: u16) -> PortState {
+    match std::net::TcpListener::bind(("127.0.0.1", port)) {
+        Ok(_) => PortState::Free,
+        Err(error) => match error.raw_os_error() {
+            // WSAEACCES: the bind is forbidden by policy, not by a listener.
+            Some(10013) => PortState::Reserved,
+            _ => PortState::Busy,
+        },
+    }
+}
+
+/// Readable reason for a port the tunnel cannot have.
+fn port_hint(port: u16, state: PortState) -> String {
+    if state == PortState::Reserved {
+        return format!(
+            "Порт {port} недоступен: его зарезервировала Windows (Hyper-V, Docker или WSL). \
+             Выберите другой порт в настройках VPN."
+        );
+    }
+    match port_owner(port) {
+        // Never kill by image name: another client's xray.exe may be running.
+        Some(pid) => format!(
+            "Порт {port} занят программой (PID {pid}). Закройте её или выберите другой порт."
+        ),
+        None => {
+            format!("Порт {port} занят другой программой. Закройте её или выберите другой порт.")
+        }
+    }
 }
 
 pub fn validate_port(port: u16) -> Result<u16, String> {
@@ -1582,18 +1674,22 @@ fn port_owner(port: u16) -> Option<u32> {
 pub fn start(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let _guard = lock(&state.xray.op);
+    // A manual start begins a fresh restart budget.
+    lock(&state.xray.restarts).reset();
     start_locked(app)
 }
 
 pub fn stop(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let _guard = lock(&state.xray.op);
+    lock(&state.xray.restarts).reset();
     stop_locked(app)
 }
 
 pub fn restart(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let _guard = lock(&state.xray.op);
+    lock(&state.xray.restarts).reset();
     stop_locked(app)?;
     std::thread::sleep(Duration::from_millis(300));
     start_locked(app)
@@ -1609,25 +1705,18 @@ fn start_locked(app: &AppHandle) -> Result<(), String> {
             return Ok(());
         }
     }
-    ensure_core_locked(app)?;
+    ensure_core_locked(app).map_err(|error| fail_start(app, error))?;
 
     let cfg = load_cfg(app);
-    if !port_available(cfg.socks_port) || !port_available(cfg.http_port) {
-        let busy = if !port_available(cfg.socks_port) {
-            cfg.socks_port
+    let socks = port_state(cfg.socks_port);
+    let http = port_state(cfg.http_port);
+    if socks != PortState::Free || http != PortState::Free {
+        let (busy, state) = if socks != PortState::Free {
+            (cfg.socks_port, socks)
         } else {
-            cfg.http_port
+            (cfg.http_port, http)
         };
-        // Never kill by image name: another client's xray.exe may be running.
-        let owner = port_owner(busy)
-            .map(|pid| format!(" (PID {pid})"))
-            .unwrap_or_default();
-        return Err(mark_failed(
-            app,
-            format!(
-                "Порт {busy} занят{owner}. Закройте программу, которая его держит, или выберите другой порт."
-            ),
-        ));
+        return Err(fail_start(app, port_hint(busy, state)));
     }
 
     set_status(app, |s| {
@@ -1636,11 +1725,57 @@ fn start_locked(app: &AppHandle) -> Result<(), String> {
         s.last_error = None;
     });
 
-    let config_file = write_config(app, cfg.selected)?;
-    let binary = binary_path();
-    let mut cmd = Command::new(&binary);
+    // The OS reservation can change between the probe above and the core's own
+    // `listen`, and another process can grab the Stats port in that window. One
+    // retry with a freshly chosen number is cheaper than sending the user to
+    // look at ports, so the start is attempted twice.
+    let mut message = String::new();
+    for attempt in 1..=START_ATTEMPTS {
+        let config_file = match write_config(app, cfg.selected) {
+            Ok(path) => path,
+            Err(error) => return Err(fail_start(app, error)),
+        };
+        let (pid, exited) = match launch_core(app, &config_file) {
+            Ok(result) => result,
+            Err(error) => return Err(fail_start(app, error)),
+        };
+        let Some(reason) = exited else {
+            finish_start(app, &cfg, pid);
+            return Ok(());
+        };
+        // The stderr reader is another thread: give it a moment so a bind error
+        // is in the tail before the retry decision is made.
+        std::thread::sleep(Duration::from_millis(150));
+        let tail = log_tail(app, 3);
+        message = if tail.is_empty() {
+            format!("Xray завершился сразу после запуска ({reason}).")
+        } else {
+            format!("Xray завершился сразу после запуска ({reason}). {tail}")
+        };
+        if attempt < START_ATTEMPTS && mentions_bind_failure(&tail) {
+            push_log(app, format!("Служебный порт занят — пробую другой. {tail}"));
+            continue;
+        }
+        break;
+    }
+    Err(fail_start(app, message))
+}
+
+/// Reports a start failure: status for the page, line for the log on disk.
+fn fail_start(app: &AppHandle, message: impl Into<String>) -> String {
+    let message = message.into();
+    push_log(app, message.clone());
+    mark_failed(app, message)
+}
+
+/// Starts the core on an already written config and waits out the grace period.
+///
+/// Returns the pid and the exit reason when the process died within
+/// [`START_GRACE`]: that is how a bind failure or a broken config looks.
+fn launch_core(app: &AppHandle, config_file: &Path) -> Result<(u32, Option<String>), String> {
+    let mut cmd = Command::new(binary_path());
     cmd.arg("-c")
-        .arg(&config_file)
+        .arg(config_file)
         .current_dir(dir())
         // Xray looks for geosite.dat next to its executable; pin the resource
         // directory to ours so a moved binary still finds the lists.
@@ -1650,10 +1785,9 @@ fn start_locked(app: &AppHandle) -> Result<(), String> {
         .stderr(Stdio::piped());
     sys::hidden(&mut cmd);
 
-    let mut child = match cmd.spawn() {
-        Ok(child) => child,
-        Err(e) => return Err(mark_failed(app, format!("Не удалось запустить Xray: {e}"))),
-    };
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Не удалось запустить Xray: {e}"))?;
     let pid = child.id();
     crate::job::adopt(&child);
     if let Some(stdout) = child.stdout.take() {
@@ -1679,18 +1813,22 @@ fn start_locked(app: &AppHandle) -> Result<(), String> {
             None => Some("процесс не запустился".to_string()),
         }
     };
-    if let Some(reason) = exited {
+    if exited.is_some() {
         let state = app.state::<AppState>();
         *lock(&state.xray.child) = None;
-        let tail = log_tail(app, 3);
-        let message = if tail.is_empty() {
-            format!("Xray завершился сразу после запуска ({reason}).")
-        } else {
-            format!("Xray завершился сразу после запуска ({reason}). {tail}")
-        };
-        return Err(mark_failed(app, message));
     }
+    Ok((pid, exited))
+}
 
+/// Whether a short exit looks like a port the core was not allowed to bind.
+fn mentions_bind_failure(tail: &str) -> bool {
+    tail.contains("failed to listen") || tail.contains("bind:")
+}
+
+/// Marks a successful start: status, remembered session, system proxy, watcher.
+fn finish_start(app: &AppHandle, cfg: &config::XrayConfig, pid: u32) {
+    let state = app.state::<AppState>();
+    state.xray.desired.store(true, Ordering::SeqCst);
     set_status(app, |s| {
         s.state = XrayState::Running;
         s.pid = Some(pid);
@@ -1706,7 +1844,6 @@ fn start_locked(app: &AppHandle) -> Result<(), String> {
     }
     spawn_watcher(app.clone(), pid);
     spawn_proxy_guard(app.clone());
-    Ok(())
 }
 
 fn spawn_watcher(app: AppHandle, pid: u32) {
@@ -1736,12 +1873,143 @@ fn spawn_watcher(app: AppHandle, pid: u32) {
             format!("Xray завершился неожиданно ({code}). {tail}")
         };
         // The inbound is gone: a leftover WinINET proxy would break every browser.
-        PROXY_GUARD.store(false, Ordering::SeqCst);
+        // Bumping the generation retires the guard of this tunnel.
+        PROXY_GUARD.fetch_add(1, Ordering::SeqCst);
         restore_system_proxy();
         set_status(&app, |s| s.system_proxy = false);
-        mark_failed(&app, message);
+        push_log(&app, format!("supervisor: {message}"));
+        recover(&app, &message);
         return;
     });
+}
+
+/// Brings the core back after an unexpected exit, following [`RestartPolicy`].
+///
+/// A VPN that stays silently off until the user notices is the worst failure
+/// mode of this app, so the watcher does not stop at "failed": it waits out the
+/// backoff and starts the core again. A manual stop, the end of the Windows
+/// session or a spent budget ends the loop.
+fn recover(app: &AppHandle, reason: &str) {
+    let state = app.state::<AppState>();
+    // Another watch may be finishing its own recovery right now; its last act is
+    // clearing the flag, so a death seen in that gap must not be dropped: wait
+    // for the slot to free up and take over.
+    if !take_recovery(&state) {
+        return;
+    }
+
+    let mut cause = reason.to_string();
+    loop {
+        if sys::session_ending() {
+            mark_failed(
+                app,
+                "Windows завершает сеанс — VPN запустится при следующем входе.",
+            );
+            break;
+        }
+        // A manual stop during the backoff cancels the restart.
+        if !state.xray.desired.load(Ordering::SeqCst) {
+            break;
+        }
+
+        // The guard is dropped before the decision is acted upon: `give_up`
+        // and `start_locked` touch other locks.
+        let decision = lock(&state.xray.restarts).next_attempt(now_secs());
+        let (attempt, delay) = match decision {
+            RestartDecision::GiveUp { attempts } => {
+                give_up(app, attempts, &cause);
+                break;
+            }
+            RestartDecision::Retry { attempt, delay } => (attempt, delay),
+        };
+
+        mark_restarting(app, attempt, delay, &cause);
+        if !sleep_unless_stopped(app, delay) {
+            break;
+        }
+
+        let running = {
+            let _guard = lock(&state.xray.op);
+            if !state.xray.desired.load(Ordering::SeqCst) || lock(&state.xray.child).is_some() {
+                break;
+            }
+            match start_locked(app) {
+                Ok(()) => true,
+                Err(error) => {
+                    cause = error;
+                    false
+                }
+            }
+        };
+
+        if running {
+            push_log(
+                app,
+                format!(
+                    "supervisor: VPN снова работает (попытка {attempt} из {}).",
+                    RESTART_DELAYS_SECS.len()
+                ),
+            );
+            break;
+        }
+    }
+
+    state.xray.recovering.store(false, Ordering::SeqCst);
+}
+
+/// Status while the supervisor waits out the backoff: `starting`, never
+/// `error`, so the page shows a reconnect instead of a dead switch.
+fn mark_restarting(app: &AppHandle, attempt: u32, delay: Duration, cause: &str) {
+    let message = format!(
+        "VPN перезапускается (попытка {attempt} из {}), через {} с. {cause}",
+        RESTART_DELAYS_SECS.len(),
+        delay.as_secs()
+    );
+    set_status(app, |s| {
+        s.state = XrayState::Starting;
+        s.pid = None;
+        s.last_error = Some(message.clone());
+    });
+    push_log(app, format!("supervisor: {message}"));
+}
+
+/// The budget is spent: say why in plain language and stop trying.
+///
+/// `session_running` stays set on purpose: the port reservation may change
+/// after a reboot, so the next app start still tries to bring the tunnel back.
+fn give_up(app: &AppHandle, attempts: u32, cause: &str) {
+    let state = app.state::<AppState>();
+    state.xray.desired.store(false, Ordering::SeqCst);
+    let message = format!("VPN не запускается после {attempts} попыток. {cause}");
+    push_log(app, format!("supervisor: {message}"));
+    mark_failed(app, message);
+}
+
+/// Waits `delay` in small steps so a manual stop during the backoff is instant.
+fn sleep_unless_stopped(app: &AppHandle, delay: Duration) -> bool {
+    let state = app.state::<AppState>();
+    let step = Duration::from_millis(200);
+    let mut left = delay;
+    while left > Duration::ZERO {
+        let slice = left.min(step);
+        std::thread::sleep(slice);
+        left -= slice;
+        if !state.xray.desired.load(Ordering::SeqCst) || sys::session_ending() {
+            return false;
+        }
+    }
+    true
+}
+
+/// Takes the single recovery slot, waiting out a loop that is just finishing.
+fn take_recovery(state: &AppState) -> bool {
+    for _ in 0..20 {
+        if !state.xray.recovering.swap(true, Ordering::SeqCst) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    false
 }
 
 /// Keeps the Windows system proxy pointed at us while the tunnel is up.
@@ -1750,16 +2018,17 @@ fn spawn_watcher(app: AppHandle, pid: u32) {
 /// then silently stop using the tunnel. The guard re-applies our proxy once per
 /// half a minute and gives up after three failures in a row.
 fn spawn_proxy_guard(app: AppHandle) {
-    if PROXY_GUARD.swap(true, Ordering::SeqCst) {
-        return;
-    }
+    // A new guard retires the previous one: it checks its generation after
+    // every sleep and leaves without touching the shared value.
+    let generation = PROXY_GUARD.fetch_add(1, Ordering::SeqCst) + 1;
     std::thread::spawn(move || {
+        let alive = || PROXY_GUARD.load(Ordering::SeqCst) == generation;
         let mut failures = 0u8;
         let mut restored = false;
-        while PROXY_GUARD.load(Ordering::SeqCst) {
+        while alive() {
             std::thread::sleep(Duration::from_secs(30));
-            if !PROXY_GUARD.load(Ordering::SeqCst) {
-                break;
+            if !alive() {
+                return;
             }
             let running = {
                 let state = app.state::<AppState>();
@@ -1788,20 +2057,24 @@ fn spawn_proxy_guard(app: AppHandle) {
             }
             failures += 1;
             if failures >= 3 {
-                PROXY_GUARD.store(false, Ordering::SeqCst);
                 let _ = app.emit(
                     "proxy-guard",
                     "Системный прокси снят другим приложением. Включите «VPN для сайтов» заново.",
                 );
-                break;
+                return;
             }
         }
-        PROXY_GUARD.store(false, Ordering::SeqCst);
     });
 }
 
 fn stop_locked(app: &AppHandle) -> Result<(), String> {
-    PROXY_GUARD.store(false, Ordering::SeqCst);
+    // Retire the guard: a pending re-apply must not outlive the tunnel.
+    PROXY_GUARD.fetch_add(1, Ordering::SeqCst);
+    {
+        // The user asked for "off": a pending recovery must not bring it back.
+        let state = app.state::<AppState>();
+        state.xray.desired.store(false, Ordering::SeqCst);
+    }
     let _ = save_cfg(app, |cfg| cfg.session_running = false);
     let taken = {
         let state = app.state::<AppState>();
@@ -1849,6 +2122,7 @@ pub fn stop_on_exit(app: &AppHandle) {
     restore_system_proxy();
     let taken = {
         let state = app.state::<AppState>();
+        state.xray.desired.store(false, Ordering::SeqCst);
         let mut guard = lock(&state.xray.child);
         guard.take()
     };
@@ -2584,5 +2858,33 @@ mod tests {
     fn port_validation_matches_the_ui() {
         assert!(validate_port(17808).is_ok());
         assert!(validate_port(80).is_err());
+    }
+
+    #[test]
+    fn stats_port_is_taken_from_the_os() {
+        // The OS does not hand out a port that is already listened on, so this
+        // test really covers the exclusion list: a number reserved by the
+        // caller (SOCKS/HTTP/inbound) must come back different.
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("listener");
+        let busy = listener.local_addr().expect("addr").port();
+        let port = pick_stats_port(&[busy, 17808, 17809]).expect("свободный порт");
+        assert_ne!(port, busy);
+        assert!(![17808u16, 17809].contains(&port));
+        assert!(
+            std::net::TcpListener::bind(("127.0.0.1", port)).is_ok(),
+            "выбранный порт должен приниматься системой"
+        );
+    }
+
+    #[test]
+    fn reserved_ports_come_from_the_inbounds() {
+        let value = json!({
+            "inbounds": [
+                { "port": 17808, "protocol": "socks" },
+                { "port": 17809, "protocol": "http" },
+                { "port": 443, "protocol": "vless" }
+            ]
+        });
+        assert_eq!(stats_reserved_ports(&value), vec![17808, 17809, 443]);
     }
 }
